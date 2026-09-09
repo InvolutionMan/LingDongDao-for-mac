@@ -178,6 +178,13 @@ final class ClaudeSessionMonitor: ObservableObject {
     /// completion checkmark).
     var isActive: Bool { phase != .idle }
 
+    /// True while a turn is in flight — the panel says "Working…" instead of
+    /// "No tool activity yet" in the gap between two tool calls.
+    var isBusy: Bool {
+        if case .running = phase { return true }
+        return false
+    }
+
     private var pollingSource: DispatchSourceTimer?
     private var statusFileSource: DispatchSourceFileSystemObject?
     private var pendingIdleReturn: DispatchWorkItem?

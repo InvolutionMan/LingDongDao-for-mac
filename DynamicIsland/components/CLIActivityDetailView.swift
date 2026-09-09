@@ -118,6 +118,10 @@ struct CLIActivityDetailView: View {
         ) {
             if let current = claudeMonitor.activity?.current {
                 taskLine(name: current.name, target: current.target, isRunning: current.isRunning)
+            } else {
+                Text(claudeMonitor.isBusy ? "Working…" : "No tool activity yet")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.35))
             }
             usageStats(claudeMonitor.usage)
         }

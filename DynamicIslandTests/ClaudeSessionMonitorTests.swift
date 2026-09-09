@@ -169,6 +169,59 @@ final class ClaudeSessionMonitorTests: XCTestCase {
         XCTAssertNil(ClaudeSessionTail.usage(fromTail: tail)?.cacheHitRate)
     }
 
+    // MARK: - Hook tool activity
+
+    func testActivityFromHookStatusFile() {
+        let obj: [String: Any] = [
+            "busy": true,
+            "since": 1_700_000_000_000,
+            "tool": ["name": "read", "target": "Sources/main.swift", "pending": true],
+            "tasks": [
+                ["id": "t1", "name": "read", "target": "Sources/main.swift", "state": "running"],
+                ["id": "t2", "name": "bash", "target": "swift test", "state": "completed"],
+            ],
+        ]
+        let activity = CLIToolActivity.from(status: obj)
+
+        XCTAssertEqual(activity?.toolName, "read")
+        XCTAssertEqual(activity?.toolTarget, "Sources/main.swift")
+        XCTAssertEqual(activity?.toolIsPending, true)
+        XCTAssertEqual(activity?.tasks.count, 2)
+        XCTAssertEqual(activity?.tasks.first?.state, .running)
+        XCTAssertEqual(activity?.tasks.last?.state, .completed)
+        XCTAssertEqual(activity?.current?.name, "read")
+        XCTAssertEqual(activity?.current?.isRunning, true)
+    }
+
+    func testActivityPrefersRunningTaskOverLastTool() {
+        let obj: [String: Any] = [
+            "tool": ["name": "bash", "target": "swift test", "pending": false],
+            "tasks": [
+                ["id": "t1", "name": "grep", "target": "activityLabel", "state": "running"],
+                ["id": "t2", "name": "bash", "target": "swift test", "state": "completed"],
+            ],
+        ]
+        let activity = CLIToolActivity.from(status: obj)
+        XCTAssertEqual(activity?.current?.name, "grep")
+        XCTAssertEqual(activity?.current?.isRunning, true)
+    }
+
+    func testActivityFallsBackToToolWhenNothingRuns() {
+        let obj: [String: Any] = [
+            "tool": ["name": "todo", "target": "Testing the hook", "pending": false],
+            "tasks": [["id": "t1", "name": "todo", "target": "Testing the hook", "state": "completed"]],
+        ]
+        let activity = CLIToolActivity.from(status: obj)
+        XCTAssertEqual(activity?.current?.name, "todo")
+        XCTAssertEqual(activity?.current?.target, "Testing the hook")
+        XCTAssertEqual(activity?.current?.isRunning, false)
+    }
+
+    func testActivityNilWithoutToolData() {
+        XCTAssertNil(CLIToolActivity.from(status: ["busy": false, "since": 1]))
+        XCTAssertNil(CLIToolActivity.from(status: ["tasks": [["state": "running"]]]))
+    }
+
     func testFormatElapsed() {
         XCTAssertEqual(ClaudeLiveActivity.formatElapsed(0), "00:00")
         XCTAssertEqual(ClaudeLiveActivity.formatElapsed(65), "01:05")

@@ -153,6 +153,7 @@ final class ClaudeSessionMonitor: ObservableObject {
         var model: String?
         var thinkingLevel: String?
         var usage: CLIUsage?
+        var activity: CLIToolActivity?
     }
 
     @Published private(set) var phase: ClaudeActivityPhase = .idle
@@ -168,6 +169,10 @@ final class ClaudeSessionMonitor: ObservableObject {
     /// Token usage of Claude Code's latest assistant message (cache hit rate,
     /// tokens), read from the transcript. Nil when unknown.
     @Published private(set) var usage: CLIUsage?
+
+    /// What Claude Code is executing right now — the running tool and the
+    /// turn's task list, written in real time by the Claude Code hook.
+    @Published private(set) var activity: CLIToolActivity?
 
     /// True while the activity should be on screen (running or showing the
     /// completion checkmark).
@@ -210,14 +215,23 @@ final class ClaudeSessionMonitor: ObservableObject {
             model = nil
             thinkingLevel = nil
             usage = nil
+            activity = nil
         }
     }
 
     private func apply(_ sample: ClaudeSessionSample) {
         let previousUsage = usage
+        let previousActivity = activity
         model = sample.model
         thinkingLevel = sample.thinkingLevel
         usage = sample.usage
+        activity = sample.activity
+        if sample.activity != previousActivity {
+            let line = sample.activity?.current.map {
+                "\($0.name) \($0.target ?? "-") \($0.isRunning ? "running" : "idle")"
+            } ?? "none"
+            CLIActivityDebugLog.record("claude activity: \(line)")
+        }
         if sample.usage != previousUsage {
             let hit = sample.usage?.cacheHitRate.map(CLIUsage.percentText) ?? "-"
             CLIActivityDebugLog.record("claude usage: hit=\(hit) tokens=\(sample.usage?.totalTokens ?? 0)")
@@ -302,7 +316,7 @@ final class ClaudeSessionMonitor: ObservableObject {
     /// (claude killed mid-turn, before `Stop` could fire) must not stick.
     nonisolated static func pollOnce(now: Date = Date(), sessionsRoot: URL? = nil) -> ClaudeSessionSample {
         guard isClaudeProcessRunning() else {
-            return ClaudeSessionSample(busy: false, since: nil, model: nil, thinkingLevel: nil, usage: nil)
+            return ClaudeSessionSample(busy: false, since: nil, model: nil, thinkingLevel: nil, usage: nil, activity: nil)
         }
         // Tail details fill any field the status file predates.
         let tailText = newestSessionTailText(now: now, root: sessionsRoot)
@@ -316,7 +330,8 @@ final class ClaudeSessionMonitor: ObservableObject {
                 since: status.since.map { Date(timeIntervalSince1970: $0 / 1000) },
                 model: model,
                 thinkingLevel: status.thinkingLevel ?? effortLevel(forModel: model),
-                usage: tailUsage
+                usage: tailUsage,
+                activity: status.activity
             )
         }
         return ClaudeSessionSample(
@@ -324,7 +339,8 @@ final class ClaudeSessionMonitor: ObservableObject {
             since: nil,
             model: tailModel,
             thinkingLevel: effortLevel(forModel: tailModel),
-            usage: tailUsage
+            usage: tailUsage,
+            activity: nil
         )
     }
 
@@ -338,14 +354,16 @@ final class ClaudeSessionMonitor: ObservableObject {
             .appendingPathComponent(".claude/settings.json")
     }
 
-    nonisolated private static func readStatusFile() -> (busy: Bool, since: Double?, model: String?, thinkingLevel: String?)? {
+    nonisolated private static func readStatusFile() -> (
+        busy: Bool, since: Double?, model: String?, thinkingLevel: String?, activity: CLIToolActivity?
+    )? {
         guard let data = try? Data(contentsOf: statusFileURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let busy = obj["busy"] as? Bool else { return nil }
         let since = (obj["since"] as? NSNumber)?.doubleValue
         let model = obj["model"] as? String
         let thinkingLevel = obj["thinkingLevel"] as? String
-        return (busy, since, model, thinkingLevel)
+        return (busy, since, model, thinkingLevel, CLIToolActivity.from(status: obj))
     }
 
     /// Claude Code's thinking degree: the per-model override in

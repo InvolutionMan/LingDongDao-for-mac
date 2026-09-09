@@ -116,6 +116,9 @@ struct CLIActivityDetailView: View {
             started: claudeStarted,
             frozenTime: claudeFrozenTime
         ) {
+            if let current = claudeMonitor.activity?.current {
+                taskLine(name: current.name, target: current.target, isRunning: current.isRunning)
+            }
             usageStats(claudeMonitor.usage)
         }
     }
@@ -201,34 +204,7 @@ struct CLIActivityDetailView: View {
                         .help(error)
                 }
             } else if let task = currentTask(detail) {
-                HStack(spacing: 8) {
-                    Text(activityLabel(for: task.name))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .frame(width: 58, alignment: .leading)
-
-                    Text(task.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.white.opacity(0.16)))
-
-                    if let target = task.target {
-                        Text(target)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(task.isRunning ? 0.9 : 0.55))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(target)
-                    }
-
-                    if task.isRunning {
-                        Circle()
-                            .fill(Color.green.opacity(0.9))
-                            .frame(width: 5, height: 5)
-                    }
-                }
+                taskLine(name: task.name, target: task.target, isRunning: task.isRunning)
             } else {
                 Text("No tool activity yet")
                     .font(.system(size: 11))
@@ -251,6 +227,39 @@ struct CLIActivityDetailView: View {
                 if let cacheRead = detail.cacheReadTokens, cacheRead > 0 {
                     stat(label: "cached", value: PiLiveActivity.formatTokens(cacheRead))
                 }
+            }
+        }
+    }
+
+    /// The one-line "what is it doing right now" row, shared by pi and Claude.
+    @ViewBuilder
+    private func taskLine(name: String, target: String?, isRunning: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(activityLabel(for: name))
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: 58, alignment: .leading)
+
+            Text(name)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Color.white.opacity(0.16)))
+
+            if let target {
+                Text(target)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(isRunning ? 0.9 : 0.55))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(target)
+            }
+
+            if isRunning {
+                Circle()
+                    .fill(Color.green.opacity(0.9))
+                    .frame(width: 5, height: 5)
             }
         }
     }
@@ -329,7 +338,10 @@ struct CLIActivityDetailView: View {
         case "read": return "Reading"
         case "write", "edit", "multi_edit": return "Editing"
         case "bash", "shell": return "Running"
+        case "grep", "glob", "search": return "Searching"
         case "fetch_content", "web_search", "get_search_content": return "Fetching"
+        case "task", "agent": return "Agent"
+        case "todo", "todowrite": return "Planning"
         default: return "Running"
         }
     }

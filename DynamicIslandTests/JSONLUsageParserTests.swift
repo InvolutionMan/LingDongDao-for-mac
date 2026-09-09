@@ -165,4 +165,70 @@ final class JSONLUsageParserTests: XCTestCase {
         XCTAssertEqual(snapshot.session.outputTokens, 250)
         XCTAssertTrue(snapshot.models.contains { $0.model == "codex" })
     }
+
+    private func makePiLine(id: String, input: Int, output: Int, cacheRead: Int, cacheWrite: Int, costTotal: Double, ts: String) -> String {
+        """
+        {"type": "message", "id": "\(id)", "timestamp": "\(ts)", "message": {"role": "assistant", "model": "deepseek-v4-flash", "usage": {"input": \(input), "output": \(output), "cacheRead": \(cacheRead), "cacheWrite": \(cacheWrite), "reasoning": 0, "totalTokens": \(input + output + cacheRead + cacheWrite), "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": \(costTotal)}}}}
+        """
+    }
+
+    func testParsePiMessageFormat() throws {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let ts = iso.string(from: now.addingTimeInterval(-3600))
+
+        let content = makePiLine(id: "abc123", input: 109, output: 318, cacheRead: 89856, cacheWrite: 0, costTotal: 0.0003558968, ts: ts)
+
+        let file = try makeTempFile(content: content)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let snapshot = parseFile(file, now: now)
+
+        // UsageRecord's inputTokens includes cached tokens (109 + 89856).
+        XCTAssertEqual(snapshot.session.inputTokens, 109 + 89856)
+        XCTAssertEqual(snapshot.session.outputTokens, 318)
+        XCTAssertEqual(snapshot.session.costUSD, 0.0003558968, accuracy: 1e-12)
+        XCTAssertFalse(snapshot.session.hasUnpricedModel)
+        XCTAssertTrue(snapshot.models.contains { $0.model == "deepseek-v4-flash" })
+    }
+
+    func testParsePiPrefersOwnCostOverPricingTable() throws {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let ts = iso.string(from: now.addingTimeInterval(-3600))
+
+        // Pi's own cost (0.01) must win over whatever ModelPricing computes.
+        let content = makePiLine(id: "abc123", input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, costTotal: 0.01, ts: ts)
+
+        let file = try makeTempFile(content: content)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let snapshot = parseFile(file, now: now)
+
+        XCTAssertEqual(snapshot.session.costUSD, 0.01, accuracy: 1e-12)
+    }
+
+    func testParsePiDeduplicatesAcrossFiles() throws {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let ts = iso.string(from: now.addingTimeInterval(-3600))
+
+        // The same record id in two files (e.g. forked sessions) counts once.
+        let line = makePiLine(id: "dup01", input: 100, output: 50, cacheRead: 0, cacheWrite: 0, costTotal: 0.001, ts: ts)
+        let file1 = try makeTempFile(content: line)
+        let file2 = try makeTempFile(content: line)
+        defer {
+            try? FileManager.default.removeItem(at: file1)
+            try? FileManager.default.removeItem(at: file2)
+        }
+
+        let snapshot = JSONLUsageParser.aggregate(files: [file1, file2], now: now)
+
+        XCTAssertEqual(snapshot.session.inputTokens, 100)
+        XCTAssertEqual(snapshot.session.outputTokens, 50)
+        XCTAssertEqual(snapshot.session.costUSD, 0.001, accuracy: 1e-12)
+    }
 }

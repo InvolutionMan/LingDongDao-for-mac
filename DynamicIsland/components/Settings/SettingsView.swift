@@ -7960,10 +7960,57 @@ struct StatsSettings: View {
                     .onChange(of: enableNewAPIProvider) { _, _ in
                         LLMUsageManager.shared.refreshAll(force: true)
                     }
+
+                    Defaults.Toggle(key: .enablePiProvider) {
+                        Text("Pi")
+                    }
+                    .settingsHighlight(id: highlightID("Pi Provider"))
                 } header: {
                     Text("LLM Providers")
                 } footer: {
                     Text("Choose which AI providers appear in the Usage tab.")
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+
+                Section {
+                    Defaults.Toggle(key: .enablePiLiveActivity) {
+                        Text("Show Pi task activity")
+                    }
+                    .settingsHighlight(id: highlightID("Pi Live Activity"))
+                } header: {
+                    Text("Pi")
+                } footer: {
+                    Text("Show a timer-style indicator in the notch while the pi CLI is executing a task.")
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+
+                Section {
+                    Defaults.Toggle(key: .enableCodexLiveActivity) {
+                        Text("Show Codex task activity")
+                    }
+                    .settingsHighlight(id: highlightID("Codex Live Activity"))
+                } header: {
+                    Text("Codex")
+                } footer: {
+                    Text("Show a timer-style indicator in the notch while the Codex CLI is executing a task.")
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+
+                Section {
+                    Defaults.Toggle(key: .enableClaudeLiveActivity) {
+                        Text("Show Claude Code task activity")
+                    }
+                    .settingsHighlight(id: highlightID("Claude Live Activity"))
+                } header: {
+                    Text("Claude Code")
+                } footer: {
+                    Text("Show a timer-style indicator in the notch while the Claude Code CLI is executing a task.")
                         .multilineTextAlignment(.trailing)
                         .foregroundStyle(.secondary)
                     .font(.caption)

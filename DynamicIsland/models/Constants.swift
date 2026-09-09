@@ -1237,6 +1237,12 @@ extension Defaults.Keys {
     static let enableCursorProvider = Key<Bool>("enableCursorProvider", default: true)
     static let enableAntigravityProvider = Key<Bool>("enableAntigravityProvider", default: true)
     static let enableNewAPIProvider = Key<Bool>("enableNewAPIProvider", default: false)
+    static let enablePiProvider = Key<Bool>("enablePiProvider", default: true)
+    static let enablePiLiveActivity = Key<Bool>("enablePiLiveActivity", default: true)
+    static let enableCodexLiveActivity = Key<Bool>("enableCodexLiveActivity", default: true)
+    static let enableClaudeLiveActivity = Key<Bool>("enableClaudeLiveActivity", default: true)
+    /// Writes `~/.pi/agent/atoll-cli-debug.log` (CLI monitors + detail panel).
+    static let enableCLIActivityDebugLog = Key<Bool>("enableCLIActivityDebugLog", default: false)
     static let newAPIAccounts = Key<[NewAPIAccount]>("newAPIAccounts", default: [])
     static let autoStartStatsMonitoring = Key<Bool>("autoStartStatsMonitoring", default: true)
     static let statsStopWhenNotchCloses = Key<Bool>("statsStopWhenNotchCloses", default: true)

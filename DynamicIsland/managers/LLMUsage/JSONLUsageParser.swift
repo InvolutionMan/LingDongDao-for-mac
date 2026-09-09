@@ -11,9 +11,11 @@ struct UsageRecord {
     /// Prompt tokens written into the provider cache (subset of `inputTokens`).
     let cacheWriteTokens: Int
     let dedupKey: String?
+    /// Cost already computed by the source CLI (e.g. Pi); skips `ModelPricing` when present.
+    let costUSD: Double?
 
     init(timestamp: Date, model: String, inputTokens: Int, outputTokens: Int,
-         cacheReadTokens: Int = 0, cacheWriteTokens: Int = 0, dedupKey: String?) {
+         cacheReadTokens: Int = 0, cacheWriteTokens: Int = 0, dedupKey: String?, costUSD: Double? = nil) {
         self.timestamp = timestamp
         self.model = model
         self.inputTokens = inputTokens
@@ -21,6 +23,7 @@ struct UsageRecord {
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
         self.dedupKey = dedupKey
+        self.costUSD = costUSD
     }
 
     /// Prompt tokens billed at the full prompt rate.
@@ -66,6 +69,10 @@ struct JSONLUsageParser {
 
         if let codexRecord = parseCodexTokenCount(obj, model: codexModel ?? "codex") {
             return codexRecord
+        }
+
+        if let piRecord = parsePiMessage(obj) {
+            return piRecord
         }
 
         let message = obj["message"] as? [String: Any]
@@ -116,6 +123,54 @@ struct JSONLUsageParser {
         )
     }
 
+    /// Pi coding agent (`~/.pi/agent/sessions`): assistant messages carry an
+    /// Anthropic-style usage counter set (`input`/`output`/`cacheRead`/`cacheWrite`,
+    /// `input` excludes cached tokens) plus Pi's own computed cost.
+    private static func parsePiMessage(_ obj: [String: Any]) -> UsageRecord? {
+        guard obj["type"] as? String == "message",
+              let message = obj["message"] as? [String: Any],
+              message["role"] as? String == "assistant",
+              let usage = message["usage"] as? [String: Any],
+              usage["cacheRead"] != nil else { return nil }
+
+        let uncachedInput = intValue(usage["input"]) ?? 0
+        let cacheRead = intValue(usage["cacheRead"]) ?? 0
+        let cacheWrite = intValue(usage["cacheWrite"]) ?? 0
+        let output = intValue(usage["output"]) ?? 0
+        guard uncachedInput >= 0, output >= 0, (uncachedInput > 0 || output > 0) else { return nil }
+
+        let ts: Date?
+        if let tsString = obj["timestamp"] as? String {
+            ts = parseDate(tsString)
+        } else if let ms = (message["timestamp"] as? NSNumber)?.doubleValue {
+            ts = Date(timeIntervalSince1970: ms / 1000)
+        } else {
+            ts = nil
+        }
+        guard let ts else { return nil }
+
+        let model = message["model"] as? String ?? "pi"
+        let cost = (usage["cost"] as? [String: Any])?["total"] as? Double
+        let dedupKey = (obj["id"] as? String).map { "pi-\($0)" }
+        return UsageRecord(
+            timestamp: ts,
+            model: model,
+            inputTokens: uncachedInput + cacheRead + cacheWrite,
+            outputTokens: output,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            dedupKey: dedupKey,
+            costUSD: cost
+        )
+    }
+
+    /// JSONSerialization bridges numbers to NSNumber, so integral values cast via Int
+    /// while fractional token counts (shouldn't occur) still convert losslessly.
+    private static func intValue(_ any: Any?) -> Int? {
+        guard let n = any as? NSNumber else { return nil }
+        return n.doubleValue.rounded() == n.doubleValue ? Int(n.doubleValue) : nil
+    }
+
     /// Session logs are append-only, so a file whose last write predates the
     /// window cannot contain a record inside it. Returns `true` when the date is
     /// unreadable, so an unexpected filesystem keeps the file rather than
@@ -153,8 +208,8 @@ struct JSONLUsageParser {
                 if seen.contains(key) { return }
                 seen.insert(key)
             }
-            let cost = ModelPricing.cost(model: rec.model, inputTokens: rec.uncachedInputTokens, outputTokens: rec.outputTokens,
-                                         cacheReadTokens: rec.cacheReadTokens, cacheWriteTokens: rec.cacheWriteTokens)
+            let cost = rec.costUSD ?? ModelPricing.cost(model: rec.model, inputTokens: rec.uncachedInputTokens, outputTokens: rec.outputTokens,
+                                                        cacheReadTokens: rec.cacheReadTokens, cacheWriteTokens: rec.cacheWriteTokens)
             func add(_ t: inout UsageTotals) {
                 t.inputTokens += rec.inputTokens
                 t.outputTokens += rec.outputTokens

@@ -165,3 +165,6 @@ implementation_plan.md
 walkthrough.md
 TemporaryAssets/
 *.profraw
+
+# Local agent scratch
+.zcode/

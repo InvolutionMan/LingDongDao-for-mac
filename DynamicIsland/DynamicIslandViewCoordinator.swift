@@ -104,11 +104,27 @@ class DynamicIslandViewCoordinator: ObservableObject {
     /// Direction of the most recent tab switch (true = forward/right, false = backward/left)
     @Published var tabSwitchForward: Bool = true
     
+    /// When true, the open notch shows the CLI activity detail (what the
+    /// running pi/Codex/Claude agent is doing) instead of the current tab.
+    /// Set when the closed notch is opened (hover or click) while an agent
+    /// runs, and cleared when the notch closes or another tab is picked.
+    @Published var showsCLIActivityDetail: Bool = false
+
+    /// True while the detail panel was opened by hovering: the panel then owns
+    /// the whole island and the tab bar stays hidden. Clicking the notch open
+    /// keeps the tab bar so Home/Timer/Shelf stay reachable.
+    @Published var cliActivityDetailImmersive: Bool = false
+
     @Published var currentView: NotchViews = .home {
         didSet {
             if Defaults[.enableMinimalisticUI] && currentView != .home {
                 currentView = .home
                 return
+            }
+            // Picking a tab leaves the CLI activity detail panel.
+            if showsCLIActivityDetail {
+                showsCLIActivityDetail = false
+                cliActivityDetailImmersive = false
             }
             // Track direction before SwiftUI re-renders
             let oldIdx = Self.tabOrder.firstIndex(of: oldValue) ?? 0

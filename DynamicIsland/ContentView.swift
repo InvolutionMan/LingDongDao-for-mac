@@ -42,6 +42,9 @@ struct ContentView: View {
     @ObservedObject var coordinator = DynamicIslandViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
     @ObservedObject var timerManager = TimerManager.shared
+    @ObservedObject var piSessionMonitor = PiSessionMonitor.shared
+    @ObservedObject var codexSessionMonitor = CodexSessionMonitor.shared
+    @ObservedObject var claudeSessionMonitor = ClaudeSessionMonitor.shared
     @ObservedObject var reminderManager = ReminderLiveActivityManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var statsManager = StatsManager.shared
@@ -734,6 +737,9 @@ struct ContentView: View {
                         isHovering = false
                     }
                 }
+                if newState == .closed {
+                    coordinator.showsCLIActivityDetail = false
+                }
                 if newState != .closed {
                     isHoveringClosedMusicWaveformControl = false
                 }
@@ -744,6 +750,22 @@ struct ContentView: View {
                     // change `currentView` (e.g. shortcut re-opening with the terminal
                     // tab already selected, where the cursor never enters the notch).
                     syncStickyTerminalOutsideClickMonitor()
+                }
+            }
+            // Debug-only: while `enableCLIActivityDebugLog` is on, a pi task
+            // appearing opens the island like a click would, so the support log
+            // records whether the detail panel actually rendered the tasks.
+            .onChange(of: piSessionMonitor.detail) { _, detail in
+                guard Defaults[.enableCLIActivityDebugLog], let detail else { return }
+                let hasError = detail.errorMessage != nil
+                guard !detail.tasks.isEmpty || hasError else { return }
+                CLIActivityDebugLog.record(
+                    "debug auto-open: piTasks=\(detail.tasks.count) error=\(hasError ? 1 : 0) notchState=\(vm.notchState) view=\(coordinator.currentView) detail=\(coordinator.showsCLIActivityDetail ? 1 : 0)"
+                )
+                coordinator.cliActivityDetailImmersive = false
+                coordinator.showsCLIActivityDetail = true
+                if vm.notchState == .closed {
+                    openNotch()
                 }
             }
             .onChange(of: vm.isBatteryPopoverActive) { _, newPopoverState in
@@ -1036,6 +1058,12 @@ struct ContentView: View {
                           switch musicSecondary {
                           case .timer:
                               return currentScreenExpansionType == .timer
+                          case .pi:
+                              return false
+                          case .codex:
+                              return false
+                          case .claude:
+                              return false
                           case .reminder:
                               return currentScreenExpansionType == .reminder
                           case .recording:
@@ -1056,6 +1084,9 @@ struct ContentView: View {
                       let isAirPodsListeningModeSneak = coordinator.sneakPeek.type == .bluetoothAudio
                           && coordinator.sneakPeek.value < 0
                           && AirPodsListeningMode.fromHUDSymbol(coordinator.sneakPeek.icon) != nil
+                      let activeCLICount = (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity] ? 1 : 0)
+                          + (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity] ? 1 : 0)
+                          + (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity] ? 1 : 0)
 
                       if currentScreenExpansionType == .battery
                             && isBatteryHUDVisibleOnCurrentScreen
@@ -1083,6 +1114,29 @@ struct ContentView: View {
                       } else if vm.notchState == .closed && capsLockManager.isCapsLockActive && Defaults[.enableCapsLockIndicator] && !vm.hideOnClosed && !lockScreenManager.isLocked {
                           InlineHUD(type: .constant(.capsLock), value: .constant(1.0), icon: .constant(""), hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(AnyTransition.move(edge: .trailing).combined(with: .opacity))
+                      } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && activeCLICount >= 2 && !vm.hideOnClosed {
+                          // Two or more CLIs running at once: stack the
+                          // activities (pi, Codex, Claude Code, top to bottom)
+                          // — thicker island, same length as a single expanded
+                          // activity.
+                          CLIStackActivityView()
+                              .transition(closedLiveActivitySwapTransition)
+                      } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && piSessionMonitor.isActive && Defaults[.enablePiLiveActivity] && !vm.hideOnClosed {
+                          // Pi CLI activity outranks the media island and every
+                          // other persistent live activity: it takes the inline
+                          // notch content while a pi task is in flight.
+                          PiLiveActivity()
+                              .transition(closedLiveActivitySwapTransition)
+                      } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity] && !vm.hideOnClosed {
+                          // Codex CLI activity takes the same inline slot, right
+                          // after pi, before media and every other activity.
+                          CodexLiveActivity()
+                              .transition(closedLiveActivitySwapTransition)
+                      } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity] && !vm.hideOnClosed {
+                          // Claude Code takes the same inline slot, after pi and
+                          // Codex, before media and every other activity.
+                          ClaudeLiveActivity()
+                              .transition(closedLiveActivitySwapTransition)
                       } else if canShowMusicDuringExpansion && musicPairingEligible {
                           MusicLiveActivity(secondary: musicSecondary)
                               .id("closed-music-live-activity")
@@ -1120,8 +1174,13 @@ struct ContentView: View {
                       } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           DynamicIslandFaceAnimation().animation(.interactiveSpring, value: musicManager.isPlayerIdle)
                       } else if vm.notchState == .open {
-                          DynamicIslandHeader()
-                              .frame(height: (Defaults[.enableMinimalisticUI] && isDynamicIslandMode) ? nil : max(24, vm.effectiveClosedNotchHeight))
+                          // The CLI detail panel owns the whole open island when it was
+                          // opened by hovering; a click-open keeps the tab bar so the
+                          // user can still navigate away from it.
+                          if !showsCLIActivityDetailPanel || !coordinator.cliActivityDetailImmersive {
+                              DynamicIslandHeader()
+                                  .frame(height: (Defaults[.enableMinimalisticUI] && isDynamicIslandMode) ? nil : max(24, vm.effectiveClosedNotchHeight))
+                          }
                        } else {
                            Rectangle().fill(.clear).frame(width: vm.closedNotchSize.width - 20, height: vm.effectiveClosedNotchHeight)
                        }
@@ -1230,6 +1289,9 @@ struct ContentView: View {
               ZStack {
                   if vm.notchState == .open {
                       Group {
+                          if showsCLIActivityDetailPanel {
+                              CLIActivityDetailView()
+                          } else {
                           switch coordinator.currentView {
                               case .home:
                                   NotchHomeView(albumArtNamespace: albumArtNamespace)
@@ -1256,8 +1318,9 @@ struct ContentView: View {
                                     NotchHomeView(albumArtNamespace: albumArtNamespace)
                                 }
                           }
+                          }
                       }
-                      .id(coordinator.currentView)
+                      .id(showsCLIActivityDetailPanel ? "cli-activity-detail" : "tab-\(coordinator.currentView)")
                       .transition(tabSwitchTransition)
                   }
               }
@@ -1467,6 +1530,18 @@ struct ContentView: View {
             return .timer
         }
 
+        if Defaults[.enablePiLiveActivity], piSessionMonitor.isActive {
+            return .pi
+        }
+
+        if Defaults[.enableCodexLiveActivity], codexSessionMonitor.isActive {
+            return .codex
+        }
+
+        if Defaults[.enableClaudeLiveActivity], claudeSessionMonitor.isActive {
+            return .claude
+        }
+
         if enableReminderLiveActivity, reminderManager.isActive, let reminder = reminderManager.activeReminder {
             return .reminder(reminder)
         }
@@ -1502,6 +1577,12 @@ struct ContentView: View {
         switch secondary {
         case .timer:
             return timerRightWingWidth(baseWidth: baseWidth, centerBaseWidth: centerBaseWidth)
+        case .pi:
+            return scaledWingWidth(baseWidth: baseWidth, centerBaseWidth: centerBaseWidth, factor: 0.46, extra: 18)
+        case .codex:
+            return scaledWingWidth(baseWidth: baseWidth, centerBaseWidth: centerBaseWidth, factor: 0.46, extra: 18)
+        case .claude:
+            return scaledWingWidth(baseWidth: baseWidth, centerBaseWidth: centerBaseWidth, factor: 0.46, extra: 18)
         case .reminder(let entry):
             return reminderRightWingWidth(for: entry, baseWidth: baseWidth, notchHeight: notchHeight, now: reminderManager.currentDate)
         case .capsLock(let showLabel):
@@ -1592,6 +1673,23 @@ struct ContentView: View {
                     Image(systemName: "timer")
                         .font(.system(size: badgeSize * 0.55, weight: .semibold))
                         .foregroundStyle(timerAccentColor)
+                case .pi:
+                    Image("PiText")
+                        .resizable()
+                        .renderingMode(.template)
+                        .foregroundStyle(.white)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: badgeSize * 0.45, height: badgeSize * 0.45)
+                case .codex:
+                    Image("CodexIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: badgeSize * 0.59, height: badgeSize * 0.59)
+                case .claude:
+                    Image("ClaudeIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: badgeSize * 0.45, height: badgeSize * 0.45)
                 case .reminder(let entry):
                     let accent = reminderColor(for: entry, now: reminderManager.currentDate)
                     Image(systemName: "clock")
@@ -1659,6 +1757,12 @@ struct ContentView: View {
                 progressStyle: timerProgressStyle,
                 notchHeight: notchHeight
             )
+        case .pi:
+            PiMusicSupplementView(monitor: piSessionMonitor, notchHeight: notchHeight)
+        case .codex:
+            CodexMusicSupplementView(monitor: codexSessionMonitor, notchHeight: notchHeight)
+        case .claude:
+            ClaudeMusicSupplementView(monitor: claudeSessionMonitor, notchHeight: notchHeight)
         case .reminder(let entry):
             MusicReminderSupplementView(
                 entry: entry,
@@ -2038,6 +2142,19 @@ struct ContentView: View {
 
     // MARK: - Private Methods
     private func openNotch() {
+        // Opening the island (click, gesture, sneak peek) while a CLI agent runs
+        // shows the live detail panel — tool, task list, tokens — instead of the
+        // Home tab. The tab bar stays visible so Home/Timer/Shelf remain
+        // reachable; only the hover path hides it (immersive).
+        if vm.notchState == .closed,
+           coordinator.currentView == .home,
+           shouldShowCLIActivityDetailOnHover {
+            coordinator.cliActivityDetailImmersive = false
+            coordinator.showsCLIActivityDetail = true
+            CLIActivityDebugLog.record(
+                "open-click armed detail panel: piTasks=\(piSessionMonitor.detail?.tasks.count ?? -1) codex=\(codexSessionMonitor.isActive ? 1 : 0) claude=\(claudeSessionMonitor.isActive ? 1 : 0)"
+            )
+        }
         vm.open()
     }
 
@@ -2241,7 +2358,30 @@ struct ContentView: View {
     }
 
     // MARK: - Hover Management
-    
+
+    /// True while the open island is showing the CLI activity detail instead
+    /// of a tab: the detail panel, not the Home/Timer/Shelf/Terminal tab bar.
+    private var showsCLIActivityDetailPanel: Bool {
+        coordinator.showsCLIActivityDetail && anyCLIActivityActive
+    }
+
+    /// True while any CLI agent activity is on screen — the open notch falls
+    /// back to the normal tab when the last one finishes.
+    private var anyCLIActivityActive: Bool {
+        (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity])
+            || (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity])
+            || (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity])
+    }
+
+    /// True when the closed notch is currently showing a CLI live activity, so
+    /// hovering should expand into that activity's detail panel.
+    private var shouldShowCLIActivityDetailOnHover: Bool {
+        guard vm.notchState == .closed else { return false }
+        return (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity])
+            || (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity])
+            || (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity])
+    }
+
     /// Handle hover state changes with debouncing
     private func handleHover(_ hovering: Bool) {
         // Ignore false hover-exit when the cursor is parked on the screen's top pixel.
@@ -2276,10 +2416,14 @@ struct ContentView: View {
 
             let shouldFocusTimerTab = enableTimerFeature && timerDisplayMode == .tab && timerManager.isTimerActive && !enableMinimalisticUI
 
+            let cliDetailOnHover = shouldShowCLIActivityDetailOnHover
             guard vm.notchState == .closed,
                 !isSneakPeekVisibleOnCurrentScreen,
                 !recordingLiveActivityVisibleOnClosedNotch,
-                (Defaults[.openNotchOnHover] || shouldFocusTimerTab) else { return }
+                (Defaults[.openNotchOnHover] || shouldFocusTimerTab || cliDetailOnHover) else { return }
+            CLIActivityDebugLog.record(
+                "hover-open armed: cliDetail=\(cliDetailOnHover ? 1 : 0) openOnHover=\(Defaults[.openNotchOnHover] ? 1 : 0)"
+            )
 
             hoverTask = Task {
                 try? await Task.sleep(for: .seconds(Defaults[.minimumHoverDuration]))
@@ -2298,6 +2442,14 @@ struct ContentView: View {
                             self.coordinator.currentView = .timer
                         }
                     }
+                    // A running CLI agent turns the hover-open into its live
+                    // detail panel (tool, tasks, cache hit, tokens) instead of Home.
+                    let wantsDetail = self.shouldShowCLIActivityDetailOnHover
+                    self.coordinator.cliActivityDetailImmersive = wantsDetail
+                    self.coordinator.showsCLIActivityDetail = wantsDetail
+                    CLIActivityDebugLog.record(
+                        "hover-open firing: cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
+                    )
                     self.openNotch()
                 }
             }
@@ -2929,6 +3081,9 @@ struct ContentView: View {
 
 private enum MusicSecondaryLiveActivity: Equatable {
     case timer
+    case pi
+    case codex
+    case claude
     case reminder(ReminderLiveActivityManager.ReminderEntry)
     case recording
     case focus(FocusModeType)
@@ -2940,6 +3095,12 @@ private enum MusicSecondaryLiveActivity: Equatable {
         switch self {
         case .timer:
             return "timer"
+        case .pi:
+            return "pi"
+        case .codex:
+            return "codex"
+        case .claude:
+            return "claude"
         case .reminder(let entry):
             return "reminder-\(entry.id)"
         case .recording:

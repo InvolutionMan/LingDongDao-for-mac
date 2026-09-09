@@ -749,6 +749,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !AppRuntimeEnvironment.isUITesting {
             PrivacyIndicatorManager.shared.startMonitoring()
         }
+
+        // Setup Pi CLI live activity monitor (drives the timer-style notch activity).
+        if Defaults[.enablePiLiveActivity] && !AppRuntimeEnvironment.isUITesting {
+            PiSessionMonitor.shared.startMonitoring()
+        }
+
+        // Setup Codex CLI live activity monitor (drives the timer-style notch activity).
+        if Defaults[.enableCodexLiveActivity] && !AppRuntimeEnvironment.isUITesting {
+            CodexSessionMonitor.shared.startMonitoring()
+        }
+
+        // Setup Claude Code live activity monitor (drives the timer-style notch activity).
+        if Defaults[.enableClaudeLiveActivity] && !AppRuntimeEnvironment.isUITesting {
+            ClaudeSessionMonitor.shared.startMonitoring()
+        }
         
         // Setup Real-time Audio Waveform capture if enabled
         if Defaults[.enableRealTimeWaveform] {
@@ -906,6 +921,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.dndManager.startMonitoring()
             } else {
                 self.dndManager.stopMonitoring()
+            }
+        }.store(in: &cancellables)
+
+        // Observe Pi live activity setting changes so the monitor can start/stop live.
+        Defaults.publisher(.enablePiLiveActivity, options: []).sink { _ in
+            if Defaults[.enablePiLiveActivity] {
+                PiSessionMonitor.shared.startMonitoring()
+            } else {
+                PiSessionMonitor.shared.stopMonitoring()
+            }
+        }.store(in: &cancellables)
+
+        // Observe Codex live activity setting changes so the monitor can start/stop live.
+        Defaults.publisher(.enableCodexLiveActivity, options: []).sink { _ in
+            if Defaults[.enableCodexLiveActivity] {
+                CodexSessionMonitor.shared.startMonitoring()
+            } else {
+                CodexSessionMonitor.shared.stopMonitoring()
+            }
+        }.store(in: &cancellables)
+
+        // Observe Claude live activity setting changes so the monitor can start/stop live.
+        Defaults.publisher(.enableClaudeLiveActivity, options: []).sink { _ in
+            if Defaults[.enableClaudeLiveActivity] {
+                ClaudeSessionMonitor.shared.startMonitoring()
+            } else {
+                ClaudeSessionMonitor.shared.stopMonitoring()
             }
         }.store(in: &cancellables)
 

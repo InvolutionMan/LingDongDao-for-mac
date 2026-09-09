@@ -124,6 +124,11 @@ struct TabSelectionView: View {
                     if tab.view == .extensionExperience {
                         coordinator.selectedExtensionExperienceID = tab.experienceID
                     }
+                    // Picking a tab always leaves the CLI activity detail panel —
+                    // even when it is the tab already selected (the `currentView`
+                    // didSet can't fire in that case).
+                    coordinator.showsCLIActivityDetail = false
+                    coordinator.cliActivityDetailImmersive = false
                     coordinator.currentView = tab.view
                 }
                 .frame(height: 26)

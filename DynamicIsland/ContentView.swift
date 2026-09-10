@@ -1301,7 +1301,19 @@ struct ContentView: View {
                   if vm.notchState == .open {
                       Group {
                           if showsCLIActivityDetailPanel {
+                              // The island overlays the tab bar and the tab
+                              // content in one ZStack, and each built-in tab
+                              // leaves room for the bar itself. This panel is
+                              // handed the whole island, so when the bar stays
+                              // visible (click-open) it has to start below it —
+                              // otherwise its cards cover Home / Timer / Shelf.
                               CLIActivityDetailView()
+                                  .padding(
+                                      .top,
+                                      coordinator.cliActivityDetailImmersive
+                                          ? 0
+                                          : max(24, vm.effectiveClosedNotchHeight)
+                                  )
                           } else {
                           switch coordinator.currentView {
                               case .home:

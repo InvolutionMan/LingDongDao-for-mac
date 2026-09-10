@@ -190,22 +190,22 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
                 guard let self else { return }
                 guard self.notchState == .open else { return }
                 let updatedTarget = self.calculateDynamicNotchSize()
-                self.logCLIActivityDetailSize(target: updatedTarget)
                 if self.notchSize != updatedTarget {
                     withAnimation(.smooth(duration: 0.28)) {
                         self.notchSize = updatedTarget
                     }
                 }
-                // Always resync the window: another observer may have already
-                // moved `notchSize` back (e.g. the close path), which used to
-                // leave the window tall after the last agent finished.
-                if let delegate = AppDelegate.shared {
-                    delegate.ensureWindowSize(
-                        addShadowPadding(to: updatedTarget, isMinimalistic: Defaults[.enableMinimalisticUI]),
-                        animated: true,
-                        force: false
-                    )
-                }
+                // Resize the island's window directly. Going through
+                // `AppDelegate.shared?.ensureWindowSize` looked right but never
+                // ran: the delegate lookup is nil here, so the window kept the
+                // height the closed-notch content gave it and the panel's cards
+                // were squeezed over the tab bar.
+                self.applyIslandSize(
+                    addShadowPadding(to: updatedTarget, isMinimalistic: Defaults[.enableMinimalisticUI])
+                )
+                CLIActivityDebugLog.record(
+                    "cli detail size: sections=\(self.cliActivitySectionCount) measured=\(Int(self.coordinator.cliDetailContentHeight)) target=\(Int(updatedTarget.height)) notch=\(Int(self.notchSize.height)) window=\(Int(self.islandWindow?.frame.height ?? -1))"
+                )
             }
             .store(in: &cancellables)
 
@@ -488,6 +488,43 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         )
     }
 
+    /// The island's own window.
+    ///
+    /// `AppDelegate.shared` is the documented way in, but it resolves to nil in
+    /// this app (SwiftUI's delegate adaptor is not the app delegate by the time
+    /// observers run), so fall back to finding the panel by class.
+    private var islandWindow: NSWindow? {
+        if let window = AppDelegate.shared?.window { return window }
+        if let window = AppDelegate.shared?.windows.values.first { return window }
+        return NSApplication.shared.windows.first { $0 is DynamicIslandWindow }
+    }
+
+    /// Resizes the island window the same way `AppDelegate.resizeWindow` does:
+    /// full width, centred, pinned to the top of its screen so extra height is
+    /// added downwards.
+    private func applyIslandSize(_ size: CGSize) {
+        guard let window = islandWindow,
+              let screen = window.screen ?? NSScreen.main else { return }
+
+        let screenFrame = screen.frame
+        let topBleed = notchTopScreenBleed(for: screen.localizedName)
+        let width = min(size.width, screenFrame.width).rounded()
+        let height = min(size.height, screenFrame.height + topBleed).rounded()
+        guard width > 0, height > 0 else { return }
+
+        let target = NSRect(
+            x: (screenFrame.midX - width / 2).rounded(),
+            y: (screenFrame.maxY + topBleed - height).rounded(),
+            width: width,
+            height: height
+        )
+        guard window.frame != target else { return }
+        window.setFrame(target, display: true, animate: true)
+        CLIActivityDebugLog.record(
+            "cli detail window: \(Int(target.width))×\(Int(target.height)) sections=\(cliActivitySectionCount)"
+        )
+    }
+
     /// Cards the CLI detail panel is rendering right now (pi / Codex / Claude).
     var cliActivitySectionCount: Int {
         var count = 0
@@ -518,13 +555,6 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         let header = coordinator.cliActivityDetailImmersive ? 0 : headerHeight
         let ceiling = (NSScreen.main?.visibleFrame.height ?? 900) - 80
         return min(max(base, header + content), ceiling)
-    }
-
-    /// Diagnostic line for the CLI detail sizing (only when the debug log is on).
-    func logCLIActivityDetailSize(target: CGSize) {
-        CLIActivityDebugLog.record(
-            "cli detail size: sections=\(cliActivitySectionCount) measured=\(Int(coordinator.cliDetailContentHeight)) target=\(Int(target.height))"
-        )
     }
 
     func close() {

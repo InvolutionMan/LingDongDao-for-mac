@@ -17,6 +17,10 @@ jobs:
     name: Merge dev → nightly
     runs-on: ubuntu-latest
 
+    # Upstream-only automation (it fast-forwards the upstream branch layout),
+    # so a fork skips it instead of rewriting its own branches nightly.
+    if: github.repository == 'Ebullioscopic/Atoll'
+
     steps:
       - name: Checkout nightly branch
         uses: actions/checkout@v4

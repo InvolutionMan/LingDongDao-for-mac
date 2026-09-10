@@ -20,11 +20,15 @@ jobs:
     runs-on: ubuntu-latest
 
     # Skip CI-generated commits (appcast updates, changelog archives)
+    # Upstream-only: mirroring needs the ORG_REPO_TOKEN, so a fork skips it.
     if: >-
-      github.event_name == 'release' ||
+      github.repository == 'Ebullioscopic/Atoll' &&
       (
-        !contains(github.event.head_commit.message, 'ci: update appcast') &&
-        !contains(github.event.head_commit.message, 'ci: archive changelog')
+        github.event_name == 'release' ||
+        (
+          !contains(github.event.head_commit.message, 'ci: update appcast') &&
+          !contains(github.event.head_commit.message, 'ci: archive changelog')
+        )
       )
 
     steps:

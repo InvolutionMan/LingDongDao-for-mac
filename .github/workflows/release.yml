@@ -38,7 +38,12 @@ jobs:
 
     # Skip CI-generated commits to prevent infinite loops
     # (appcast/changelog commits pushed by this workflow)
+    #
+    # Also upstream-only: the pipeline needs the Atoll GitHub App secrets
+    # (APP_ID / APP_PRIVATE_KEY), the Developer ID certificates and the Sparkle
+    # keys, so a fork skips the job instead of failing on every push to main.
     if: >-
+      github.repository == 'Ebullioscopic/Atoll' &&
       !contains(github.event.head_commit.message, 'ci: update appcast') &&
       !contains(github.event.head_commit.message, 'ci: archive changelog')
 

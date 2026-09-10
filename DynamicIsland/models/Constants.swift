@@ -1246,6 +1246,14 @@ extension Defaults.Keys {
     static let enableClaudeLiveActivity = Key<Bool>("enableClaudeLiveActivity", default: true)
     /// Writes `~/.pi/agent/atoll-cli-debug.log` (CLI monitors + detail panel).
     static let enableCLIActivityDebugLog = Key<Bool>("enableCLIActivityDebugLog", default: false)
+
+    // MARK: CLI finish sounds
+    /// Plays a chime when a CLI agent finishes a task: the success sound on a
+    /// clean finish, the failure sound when the model reported an error
+    /// (connection failure, timeout, output failure, rate limiting, …).
+    static let enableCLIFinishSound = Key<Bool>("enableCLIFinishSound", default: true)
+    static let cliSuccessSoundPath = Key<String>("cliSuccessSoundPath", default: "~/Downloads/成功.mp3")
+    static let cliFailureSoundPath = Key<String>("cliFailureSoundPath", default: "~/Downloads/失败.mp3")
     static let newAPIAccounts = Key<[NewAPIAccount]>("newAPIAccounts", default: [])
     static let autoStartStatsMonitoring = Key<Bool>("autoStartStatsMonitoring", default: true)
     static let statsStopWhenNotchCloses = Key<Bool>("statsStopWhenNotchCloses", default: true)

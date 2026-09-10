@@ -119,6 +119,27 @@ test("tool calls move upcoming -> running -> completed across turns", async () =
   assert.equal(s.cacheHitRate, 0.75); // 3000 cacheRead / (1000 input + 3000)
 });
 
+test("a tool that fails marks the turn as failed", async () => {
+  const pi = mockPi();
+  installHook(pi);
+  await fire(pi, "agent_start", { type: "agent_start" });
+  await fire(pi, "tool_execution_start", { toolCallId: "c1", toolName: "bash", args: { command: "npm test" } });
+
+  await fire(pi, "tool_execution_end", { toolCallId: "c1", toolName: "bash", isError: true });
+  assert.equal(status().failed, true);
+
+  // A later tool that succeeds clears it again: the turn recovered.
+  await fire(pi, "tool_execution_start", { toolCallId: "c2", toolName: "edit", args: { path: "a.ts" } });
+  await fire(pi, "tool_execution_end", { toolCallId: "c2", toolName: "edit", isError: false });
+  assert.equal(status().failed, undefined);
+
+  // …and a new request starts clean.
+  await fire(pi, "tool_execution_end", { toolCallId: "c3", toolName: "bash", isError: true });
+  assert.equal(status().failed, true);
+  await fire(pi, "agent_start", { type: "agent_start" });
+  assert.equal(status().failed, undefined);
+});
+
 test("provider errors are reported instead of a task", async () => {
   const pi = mockPi();
   installHook(pi);

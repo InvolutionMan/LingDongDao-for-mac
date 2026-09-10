@@ -49,9 +49,13 @@ struct PiLiveDetail: Equatable {
     /// Provider failure text (e.g. a 429) reported by the pi hook, so the
     /// notch can say why pi stopped instead of looking merely idle.
     var errorMessage: String?
+    /// The turn's last tool finished with an error (failed command, read, …),
+    /// which counts as a failed task for the finish sound.
+    var toolFailed: Bool = false
 
     var isEmpty: Bool {
-        toolName == nil && totalTokens == nil && cacheHitRate == nil && tasks.isEmpty && errorMessage == nil
+        toolName == nil && totalTokens == nil && cacheHitRate == nil && tasks.isEmpty
+            && errorMessage == nil && !toolFailed
     }
 }
 
@@ -341,7 +345,7 @@ final class PiSessionMonitor: ObservableObject {
         // pi extension's tool/task data actually reached the app.
         if sample.detail != previousDetail {
             CLIActivityDebugLog.record(
-                "pi detail: tasks=\(sample.detail?.tasks.count ?? 0) running=\(sample.detail?.tasks.filter { $0.state == .running }.count ?? 0) tool=\(sample.detail?.toolName ?? "-") error=\(sample.detail?.errorMessage != nil ? 1 : 0) hit=\(sample.detail?.cacheHitRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "-")"
+                "pi detail: tasks=\(sample.detail?.tasks.count ?? 0) running=\(sample.detail?.tasks.filter { $0.state == .running }.count ?? 0) tool=\(sample.detail?.toolName ?? "-") error=\(sample.detail?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.detail?.toolFailed == true ? 1 : 0) hit=\(sample.detail?.cacheHitRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "-")"
             )
         }
 
@@ -360,6 +364,22 @@ final class PiSessionMonitor: ObservableObject {
             // Elapsed counter ⇄ completion checkmark, mirroring the timer's finish beat.
             withAnimation(.smooth(duration: 0.3)) {
                 phase = .completed(at: Date(), startedAt: startedAt)
+            }
+            // Finish chime: the hook marks provider failures (connection,
+            // timeout, output, rate limit) as `error`, so a turn that ends with
+            // one gets the failure sound instead of the success sound. A sample
+            // with no detail at all means the process vanished, which is neither
+            // and stays silent.
+            if let detail = sample.detail {
+                // A provider error (connection, timeout, output, rate limit) or
+                // a turn whose last tool failed both count as a failure.
+                let succeeded = detail.errorMessage == nil && !detail.toolFailed
+                CLIFinishSound.play(success: succeeded)
+                CLIActivityDebugLog.record(
+                    "finish: \(succeeded ? "success" : "failure") error=\(detail.errorMessage != nil ? 1 : 0) toolFailed=\(detail.toolFailed ? 1 : 0)"
+                )
+            } else {
+                CLIActivityDebugLog.record("finish sound skipped: pi process gone without a status")
             }
             // A provider error keeps the activity (and its panel) on screen
             // long enough to be read.
@@ -518,6 +538,8 @@ final class PiSessionMonitor: ObservableObject {
         if let error = obj["error"] as? String, !error.isEmpty {
             detail.errorMessage = error
         }
+
+        detail.toolFailed = (obj["failed"] as? Bool) ?? false
 
         return detail.isEmpty ? nil : detail
     }

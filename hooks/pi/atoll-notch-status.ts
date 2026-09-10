@@ -55,6 +55,10 @@ export default function (pi: ExtensionAPI) {
   let model: string | undefined;
   let thinking: string | undefined;
   let error: string | undefined;
+  /// True while the most recent finished tool ended in an error — a failed
+  /// command / read / edit. Cleared by a later successful tool and at the start
+  /// of a new request, so "the turn ended on a failure" can be reported.
+  let lastToolFailed = false;
 
   // `pi.model` / `pi.thinkingLevel` do not exist on the extension API: the
   // model and thinking level arrive through the handler's context, and the
@@ -80,6 +84,7 @@ export default function (pi: ExtensionAPI) {
       if (model) payload.model = model;
       if (thinking) payload.thinkingLevel = thinking;
       if (error) payload.error = error;
+      if (lastToolFailed) payload.failed = true;
       if (current) {
         payload.tool = {
           name: current.name,
@@ -127,6 +132,7 @@ export default function (pi: ExtensionAPI) {
     busy = true;
     since = Date.now();
     error = undefined;
+    lastToolFailed = false;
     model = resolveModel(ctx) ?? model;
     thinking = resolveThinking(ctx) ?? thinking;
     // A new user request starts a fresh task list. (`turn_start` fires per
@@ -218,6 +224,9 @@ export default function (pi: ExtensionAPI) {
     if (existing) {
       existing.state = "completed";
     }
+    // pi reports whether this tool failed (non-zero exit, read error, …). The
+    // flag tracks the *latest* tool, so a turn that recovers ends as a success.
+    lastToolFailed = event.isError === true;
     write();
   });
 

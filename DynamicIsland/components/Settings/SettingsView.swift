@@ -7992,6 +7992,8 @@ struct StatsSettings: View {
                     .font(.caption)
                 }
 
+                CLIFinishSoundSettingsSection()
+
                 Section {
                     Defaults.Toggle(key: .enableCodexLiveActivity) {
                         Text("Show Codex task activity")
@@ -9633,5 +9635,65 @@ private extension QuickShareProvider {
 
     var symbolFallbackName: String {
         id == "System Share Menu" ? "square.and.arrow.up.on.square" : "square.and.arrow.up"
+    }
+}
+
+/// Finish-sound settings: a toggle plus one editable path per outcome, each with
+/// its own preview button. Its own view so the settings form body above stays
+/// small enough for the type checker.
+struct CLIFinishSoundSettingsSection: View {
+    var body: some View {
+        Section {
+            Defaults.Toggle(key: .enableCLIFinishSound) {
+                Text("Play a sound when a task finishes")
+            }
+            .settingsHighlight(id: SettingsTab.media.highlightID(for: "Play a sound when a task finishes"))
+
+            soundRow(title: "Success sound", key: .cliSuccessSoundPath, success: true)
+                .settingsHighlight(id: SettingsTab.media.highlightID(for: "Success sound"))
+
+            soundRow(title: "Failure sound", key: .cliFailureSoundPath, success: false)
+                .settingsHighlight(id: SettingsTab.media.highlightID(for: "Failure sound"))
+        } header: {
+            Text("Finish Sound")
+        } footer: {
+            Text("Plays the success sound when a CLI task ends normally, and the failure sound when the model reported an error — connection failure, request timeout, output failure, rate limiting. Leave a path empty to use the system sound.")
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(.secondary)
+                .font(.caption)
+        }
+    }
+
+    @ViewBuilder
+    private func soundRow(title: String, key: Defaults.Key<String>, success: Bool) -> some View {
+        let path = Defaults[key]
+        let exists = CLIFinishSound.fileExists(path)
+
+        HStack(spacing: 8) {
+            Text(title)
+
+            Spacer(minLength: 8)
+
+            TextField("~/Downloads/sound.mp3", text: Binding(
+                get: { Defaults[key] },
+                set: { Defaults[key] = $0 }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11, design: .monospaced))
+            .frame(maxWidth: 240)
+
+            Image(systemName: exists ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(exists ? Color.green : Color.orange)
+                .help(exists ? "File found" : "File not found — the system sound is used instead")
+
+            Button {
+                CLIFinishSound.preview(success: success)
+            } label: {
+                Image(systemName: "play.circle")
+            }
+            .buttonStyle(.plain)
+            .help("Play this sound")
+        }
+        .disabled(!Defaults[.enableCLIFinishSound])
     }
 }

@@ -43,7 +43,22 @@ Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
 
 pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
 
-### 4. Hook：实时行为检测
+### 4. 结束音效
+
+任务结束时播放声音（设置 → 媒体 → **Finish Sound**，可关闭）：
+
+| 情况 | 音效 |
+|---|---|
+| 任务正常结束 | 成功音效（默认 `~/Downloads/成功.mp3`） |
+| 模型连接失败 / 连接超时 / 输出失败 / 限流等 | 失败音效（默认 `~/Downloads/失败.mp3`） |
+| 本轮最后一个工具执行失败（命令返回非 0、读取失败等） | 失败音效 |
+| pi 进程直接消失（来不及上报状态） | 不播放 |
+
+- 两个音效路径都能在设置里改，带"文件是否存在"提示与试听按钮；留空则回退到系统音（`Glass` / `Basso`）
+- "本轮最后一个工具失败"采用**最后一次工具**的成败：pi 先失败后修好并成功，结尾仍是成功音
+- 判定来源：pi 的 assistant 消息 `stopReason: error/aborted`（hook 写成 `error` 字段），以及 `tool_execution_end` 的 `isError`（hook 写成 `failed` 字段）
+
+### 5. Hook：实时行为检测
 
 会话 JSONL 是缓冲写入的（约 16 KB 才 flush），所以实时数据必须靠 hook 事件。
 
@@ -53,7 +68,7 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
 |---|---|
 | `agent_start` | busy、重置本轮任务列表 |
 | `message_end` | 本轮全部工具调用（含尚未执行的）、token 用量 |
-| `tool_execution_start/end` | 当前工具 → running / completed |
+| `tool_execution_start/end` | 当前工具 → running / completed，并记录该工具是否失败（`isError`） |
 | `agent_settled` / `session_shutdown` | idle |
 | 模型 / 思考等级切换 | 模型、思考程度 |
 
@@ -72,12 +87,14 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
   "tool": { "name": "bash", "target": "npm run build", "pending": true },
   "tasks": [ { "id": "…", "name": "read", "target": "~/.zshrc", "state": "completed" } ],
   "usage": { "input": 88, "output": 90, "cacheRead": 7808 },
-  "cacheHitRate": 0.9888 }
+  "cacheHitRate": 0.9888,
+  "error": "429: {…}",   // 模型/连接/输出失败时才有
+  "failed": true }       // 本轮最后一个工具执行失败时才有
 ```
 
 > TodoWrite 会把标记为 `in_progress` 的待办内容当作当前任务显示。
 
-### 5. 全屏隐藏规则：菜单栏被遮挡就隐藏
+### 6. 全屏隐藏规则：菜单栏被遮挡就隐藏
 
 - 任何窗口**盖住系统菜单栏**（原生全屏、浏览器视频全屏、无边框游戏）→ 自动隐藏灵动岛，退出后恢复
 - 普通"最大化"窗口停在菜单栏下方，不会误触发
@@ -139,6 +156,7 @@ DynamicIsland/
   managers/CodexSessionMonitor.swift    Codex rollout 解析
   managers/ClaudeSessionMonitor.swift   Claude transcript 解析 + hook 状态
   managers/CLIActivityDebugLog.swift    诊断日志（默认关闭）
+  managers/CLIFinishSound.swift         结束音效（成功/失败，含系统音回退）
   models/CLIUsage.swift                 token 用量 / 命中率（三种 provider 归一化）
   models/CLIToolActivity.swift          当前工具与任务列表
   components/Pi|Codex|Claude/           三个 CLI 的收起态活动

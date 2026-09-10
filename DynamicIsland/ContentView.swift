@@ -213,6 +213,14 @@ struct ContentView: View {
             return CGSize(width: baseSize.width, height: preferredHeight)
         }
 
+        if vm.notchState == .open, showsCLIActivityDetailPanel {
+            let resolved = vm.cliActivityDetailHeight(
+                base: baseSize.height,
+                headerHeight: max(24, vm.effectiveClosedNotchHeight)
+            )
+            return CGSize(width: baseSize.width, height: resolved)
+        }
+
         guard coordinator.currentView == .stats else {
             return inlineLyricsAdjustedNotchSize(
                 from: baseSize,
@@ -739,6 +747,9 @@ struct ContentView: View {
                 }
                 if newState == .closed {
                     coordinator.showsCLIActivityDetail = false
+                    // Drop the measurement with the panel: a later open measures
+                    // its own content instead of inheriting this one's height.
+                    coordinator.cliDetailContentHeight = 0
                 }
                 if newState != .closed {
                     isHoveringClosedMusicWaveformControl = false

@@ -168,6 +168,47 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         
         setupDetectorObserver()
 
+        // The CLI detail panel grows the island until every active agent card
+        // fits, so nothing has to scroll — and shrinks it again when an agent
+        // finishes. All three inputs matter: the panel's visibility, its
+        // measured content height, and each monitor's phase (a CLI going idle
+        // re-renders fewer cards, which only shows up in the height *after* the
+        // panel is still on screen).
+        let cliPhaseChanges = Publishers.Merge3(
+            PiSessionMonitor.shared.$phase.map { _ in () }.eraseToAnyPublisher(),
+            CodexSessionMonitor.shared.$phase.map { _ in () }.eraseToAnyPublisher(),
+            ClaudeSessionMonitor.shared.$phase.map { _ in () }.eraseToAnyPublisher()
+        )
+
+        Publishers.Merge3(
+            coordinator.$showsCLIActivityDetail.map { _ in () }.eraseToAnyPublisher(),
+            coordinator.$cliDetailContentHeight.map { _ in () }.eraseToAnyPublisher(),
+            cliPhaseChanges
+        )
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                guard let self else { return }
+                guard self.notchState == .open else { return }
+                let updatedTarget = self.calculateDynamicNotchSize()
+                self.logCLIActivityDetailSize(target: updatedTarget)
+                if self.notchSize != updatedTarget {
+                    withAnimation(.smooth(duration: 0.28)) {
+                        self.notchSize = updatedTarget
+                    }
+                }
+                // Always resync the window: another observer may have already
+                // moved `notchSize` back (e.g. the close path), which used to
+                // leave the window tall after the last agent finished.
+                if let delegate = AppDelegate.shared {
+                    delegate.ensureWindowSize(
+                        addShadowPadding(to: updatedTarget, isMinimalistic: Defaults[.enableMinimalisticUI]),
+                        animated: true,
+                        force: false
+                    )
+                }
+            }
+            .store(in: &cancellables)
+
         ReminderLiveActivityManager.shared.$activeWindowReminders
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -420,6 +461,15 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         let baseSize = Defaults[.enableMinimalisticUI] ? minimalisticOpenNotchSize(isDynamicIslandMode: shouldUseDynamicIslandMode(for: screen)) : openNotchSize
         var adjustedSize = baseSize
 
+        // The CLI detail panel owns the island while it shows, and sizes itself
+        // to the number of active agents.
+        if coordinator.showsCLIActivityDetail, cliActivitySectionCount > 0 {
+            return CGSize(
+                width: baseSize.width,
+                height: cliActivityDetailHeight(base: baseSize.height, headerHeight: effectiveClosedNotchHeight)
+            )
+        }
+
         if coordinator.currentView == .notes || coordinator.currentView == .clipboard {
             let preferred = coordinator.notesLayoutState.preferredHeight
             adjustedSize.height = max(adjustedSize.height, preferred)
@@ -435,6 +485,45 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
             from: adjustedSize,
             isStatsTabActive: coordinator.currentView == .stats,
             secondRowProgress: coordinator.statsSecondRowExpansion
+        )
+    }
+
+    /// Cards the CLI detail panel is rendering right now (pi / Codex / Claude).
+    var cliActivitySectionCount: Int {
+        var count = 0
+        if PiSessionMonitor.shared.isActive { count += 1 }
+        if CodexSessionMonitor.shared.isActive { count += 1 }
+        if ClaudeSessionMonitor.shared.isActive { count += 1 }
+        return count
+    }
+
+    /// Roughly one card: header row + the task line + the stats row + padding.
+    private static let cliActivityCardHeight: CGFloat = 96
+
+    /// Height the CLI detail panel needs.
+    ///
+    /// Derived from the number of active agents rather than from the view's own
+    /// measurement: the measurement only lands after SwiftUI lays the panel out,
+    /// which lags a card appearing or finishing, and a stale measurement kept the
+    /// island tall after an agent went idle. The card estimate is a little
+    /// generous, so the panel never has to scroll.
+    func cliActivityDetailHeight(base: CGFloat, headerHeight: CGFloat) -> CGFloat {
+        let count = cliActivitySectionCount
+        guard count > 0 else { return base }
+
+        let cards = CGFloat(count) * Self.cliActivityCardHeight
+        let gaps = CGFloat(max(0, count - 1)) * CLIActivityDetailView.sectionSpacing
+        let content = 12 + cards + gaps + 14
+
+        let header = coordinator.cliActivityDetailImmersive ? 0 : headerHeight
+        let ceiling = (NSScreen.main?.visibleFrame.height ?? 900) - 80
+        return min(max(base, header + content), ceiling)
+    }
+
+    /// Diagnostic line for the CLI detail sizing (only when the debug log is on).
+    func logCLIActivityDetailSize(target: CGSize) {
+        CLIActivityDebugLog.record(
+            "cli detail size: sections=\(cliActivitySectionCount) measured=\(Int(coordinator.cliDetailContentHeight)) target=\(Int(target.height))"
         )
     }
 

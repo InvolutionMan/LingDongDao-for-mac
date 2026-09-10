@@ -115,6 +115,11 @@ class DynamicIslandViewCoordinator: ObservableObject {
     /// keeps the tab bar so Home/Timer/Shelf stay reachable.
     @Published var cliActivityDetailImmersive: Bool = false
 
+    /// Measured height of the CLI detail panel's content, published by
+    /// `CLIActivityDetailView` so the island can grow to fit every active agent
+    /// card instead of scrolling them.
+    @Published var cliDetailContentHeight: CGFloat = 0
+
     @Published var currentView: NotchViews = .home {
         didSet {
             if Defaults[.enableMinimalisticUI] && currentView != .home {

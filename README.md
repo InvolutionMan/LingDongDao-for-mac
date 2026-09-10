@@ -39,9 +39,11 @@ Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
 - **服务商错误直接显示**：如免费额度用尽会显示红色警告 + `Rate limit exceeded: free-models-per-day…`，而不是让人以为"没在干活"
 - 点击展开时保留顶部标签栏（可切回 Home）；悬停展开为沉浸模式（隐藏标签栏）
 
-### 3. 多 CLI 同时运行 → 竖向堆叠
+### 3. 多 CLI 同时运行 → 竖向堆叠 + 展开不再滚动
 
-pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
+pi + Codex + Claude 同时工作时，收起状态**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
+
+展开后呢？面板**按活跃数量撑高**（`计数 × 卡片高度 + 间距`，见 `cliActivityDetailHeight`），三张卡片实测需要约 286pt，灵动岛会给到 319pt —— **全部内容一次显示完，不需要滚动**（面板里已没有 `ScrollView`）。
 
 ### 4. 结束音效（pi / Codex / Claude Code）
 

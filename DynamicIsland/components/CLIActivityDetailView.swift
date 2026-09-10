@@ -8,30 +8,54 @@ import AppKit
 /// activity: instead of the Home tab, the island expands to its normal open
 /// size and shows what the running CLI agent is doing right now — the tool and
 /// target, cache hit rate, token usage, model and thinking degree.
+/// Publishes the panel's rendered height so the island can size itself.
+private struct CLIDetailContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct CLIActivityDetailView: View {
+    /// Vertical rhythm between agent cards; also used for the height estimate.
+    static let sectionSpacing: CGFloat = 12
+    private var sectionSpacing: CGFloat { Self.sectionSpacing }
+
     @ObservedObject var piMonitor = PiSessionMonitor.shared
     @ObservedObject var codexMonitor = CodexSessionMonitor.shared
     @ObservedObject var claudeMonitor = ClaudeSessionMonitor.shared
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                if piMonitor.isActive {
-                    piSection
-                }
-                if codexMonitor.isActive {
-                    codexSection
-                }
-                if claudeMonitor.isActive {
-                    claudeSection
-                }
+        // No ScrollView: the island grows to fit every card (see
+        // `DynamicIslandViewModel.calculateDynamicNotchSize`), and the measured
+        // height is what tells it how much room to take.
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            if piMonitor.isActive {
+                piSection
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            if codexMonitor.isActive {
+                codexSection
+            }
+            if claudeMonitor.isActive {
+                claudeSection
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: CLIDetailContentHeightKey.self, value: proxy.size.height)
+            }
+        )
+        .onPreferenceChange(CLIDetailContentHeightKey.self) { height in
+            let measured = height.rounded()
+            let coordinator = DynamicIslandViewCoordinator.shared
+            if abs(coordinator.cliDetailContentHeight - measured) > 0.5 {
+                coordinator.cliDetailContentHeight = measured
+            }
+        }
         .onAppear {
             CLIActivityDebugLog.record(
                 "CLI detail view appeared: pi=\(piMonitor.isActive ? 1 : 0) codex=\(codexMonitor.isActive ? 1 : 0) claude=\(claudeMonitor.isActive ? 1 : 0) piTasks=\(piMonitor.detail?.tasks.count ?? -1)"

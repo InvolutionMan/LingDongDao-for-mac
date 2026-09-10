@@ -1,0 +1,167 @@
+# LingDongDao for Mac
+
+基于 [Atoll](https://github.com/Ebullioscopic/Atoll)（macOS 灵动岛应用，GPL-3.0）的个人分支。
+
+本分支在上游基础上新增了 **AI 编程 CLI 的实时活动**：`pi`、`Codex CLI`、`Claude Code` 在灵动岛里像计时器一样实时显示正在做什么，并附带缓存命中率与 token 用量。
+
+---
+
+## 新增功能
+
+### 1. CLI 实时活动（收起状态的一行）
+
+三个 CLI 各自有图标与配色，收起时一行显示：
+
+```
+( π )  deepseek-v4.1-flash-expires-on-0910  high   99%   01:42
+  ↑        ↑                                  ↑      ↑      ↑
+ 图标    模型名（过长自动滚动）           思考程度 命中率  计时
+```
+
+- **模型名**：超出宽度用跑马灯滚动，不会把灵动岛无限拉长
+- **思考程度**：按等级着色（`off #8E8E93` · `minimal #64D2FF` · `low #5E5CE6` · `medium #BF5AF2` · `high/max #FF9F0A`）
+- **缓存命中率**：`已缓存 prompt token ÷ 全部 prompt token`，统一归一化到百分比
+- **计时**：运行中向上计时，结束瞬间换成对勾（出错时换成红色警告三角形）
+- 开始/结束都有和系统计时器一致的过渡动画
+
+### 2. 展开面板：只显示当前任务 + 用量
+
+鼠标悬停或点击灵动岛展开后（展开尺寸与 Home 一致）：
+
+```
+[π] Pi  deepseek-v4.1-…  high  01:42
+Running  [bash]  npm run build  ●          ← 只显示正在执行的一个任务
+Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
+```
+
+- **只显示"正在执行"的那一个任务**，不列已完成 / 待执行的任务
+- 模型思考间隙显示最近一次工具；完全没有工具活动时显示 `No tool activity yet`
+- **服务商错误直接显示**：如免费额度用尽会显示红色警告 + `Rate limit exceeded: free-models-per-day…`，而不是让人以为"没在干活"
+- 点击展开时保留顶部标签栏（可切回 Home）；悬停展开为沉浸模式（隐藏标签栏）
+
+### 3. 多 CLI 同时运行 → 竖向堆叠
+
+pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
+
+### 4. Hook：实时行为检测
+
+会话 JSONL 是缓冲写入的（约 16 KB 才 flush），所以实时数据必须靠 hook 事件。
+
+**pi** — `hooks/pi/atoll-notch-status.ts`（pi 启动时自动加载）
+
+| 事件 | 上报 |
+|---|---|
+| `agent_start` | busy、重置本轮任务列表 |
+| `message_end` | 本轮全部工具调用（含尚未执行的）、token 用量 |
+| `tool_execution_start/end` | 当前工具 → running / completed |
+| `agent_settled` / `session_shutdown` | idle |
+| 模型 / 思考等级切换 | 模型、思考程度 |
+
+**Claude Code** — `hooks/claude/atoll-notch-status.py`（注册在 `~/.claude/settings.json`）
+
+| 事件 | 上报 |
+|---|---|
+| `SessionStart` / `UserPromptSubmit` | busy、重置任务列表 |
+| `PreToolUse` / `PostToolUse` | 当前工具与目标（Read→read、Bash→bash、Grep→grep…） |
+| `Stop` / `SessionEnd` | idle |
+
+工具名归一化后写入状态文件，格式与 pi 一致：
+
+```json
+{ "busy": true, "since": 1788955540832,
+  "tool": { "name": "bash", "target": "npm run build", "pending": true },
+  "tasks": [ { "id": "…", "name": "read", "target": "~/.zshrc", "state": "completed" } ],
+  "usage": { "input": 88, "output": 90, "cacheRead": 7808 },
+  "cacheHitRate": 0.9888 }
+```
+
+> TodoWrite 会把标记为 `in_progress` 的待办内容当作当前任务显示。
+
+### 5. 全屏隐藏规则：菜单栏被遮挡就隐藏
+
+- 任何窗口**盖住系统菜单栏**（原生全屏、浏览器视频全屏、无边框游戏）→ 自动隐藏灵动岛，退出后恢复
+- 普通"最大化"窗口停在菜单栏下方，不会误触发
+- 设置 → 媒体 → **Hide DynamicIsland Options** 三种模式：
+  - `Hide when any app covers the menu bar`（默认）
+  - `Hide only when NowPlaying app is in fullscreen`
+  - `Never hide`
+
+---
+
+## 安装
+
+### 构建并安装应用（本机）
+
+```bash
+bash scripts/install-local.sh
+```
+
+需要 Xcode。使用本机 ad-hoc 签名（不需要 Apple 开发者账号），构建产物安装到 `/Applications/Atoll.app`。
+
+### 安装 hook
+
+```bash
+bash scripts/install-pi-hook.sh          # pi：复制到 ~/.pi/agent/extensions/
+bash scripts/install-claude-hook.sh      # Claude Code：合并进 ~/.claude/settings.json
+bash scripts/install-claude-hook.sh --uninstall
+```
+
+Claude Code 的 hook 在会话启动时加载，安装后需要新开一个会话。
+
+### 测试
+
+```bash
+# hook 契约测试（不消耗模型额度）
+node --experimental-strip-types --test hooks/pi/atoll-notch-status.test.mjs
+python3 hooks/claude/atoll-notch-status.test.py
+
+# App 单元测试
+xcodebuild test -scheme DynamicIsland -destination 'platform=macOS' \
+  -only-testing:DynamicIslandTests/PiSessionMonitorTests \
+  -only-testing:DynamicIslandTests/CodexSessionMonitorTests \
+  -only-testing:DynamicIslandTests/ClaudeSessionMonitorTests
+```
+
+---
+
+## 代码结构（新增部分）
+
+```
+hooks/
+  pi/atoll-notch-status.ts          pi 状态桥接（+ 契约测试）
+  claude/atoll-notch-status.py      Claude Code 状态桥接（+ 契约测试）
+scripts/
+  install-local.sh                  构建 + 安装到 /Applications
+  install-pi-hook.sh                pi hook 安装/卸载
+  install-claude-hook.sh            Claude Code hook 安装/卸载
+DynamicIsland/
+  managers/PiSessionMonitor.swift       pi 会话监视（状态文件 + JSONL 兜底）
+  managers/CodexSessionMonitor.swift    Codex rollout 解析
+  managers/ClaudeSessionMonitor.swift   Claude transcript 解析 + hook 状态
+  managers/CLIActivityDebugLog.swift    诊断日志（默认关闭）
+  models/CLIUsage.swift                 token 用量 / 命中率（三种 provider 归一化）
+  models/CLIToolActivity.swift          当前工具与任务列表
+  components/Pi|Codex|Claude/           三个 CLI 的收起态活动
+  components/CLIActivityDetailView.swift  展开面板
+  components/CLIStackActivityView.swift   多 CLI 堆叠
+  observers/FullscreenMediaDetection.swift 菜单栏遮挡检测
+```
+
+## 排查问题
+
+打开诊断日志（写入 `~/.pi/agent/atoll-cli-debug.log`）：
+
+```bash
+defaults write com.Ebullioscopic.Atoll enableCLIActivityDebugLog -bool true
+# 复现问题后查看
+cat ~/.pi/agent/atoll-cli-debug.log
+defaults write com.Ebullioscopic.Atoll enableCLIActivityDebugLog -bool false
+```
+
+日志会记录：hook 是否把工具/任务送达 App、面板当前渲染的那一行、全屏隐藏状态的变化、命中率。
+
+---
+
+## 许可
+
+继承上游 [Atoll](https://github.com/Ebullioscopic/Atoll) 的 **GPL-3.0**（见 `LICENSE` / `NOTICE`）。

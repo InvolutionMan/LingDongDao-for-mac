@@ -1252,8 +1252,15 @@ extension Defaults.Keys {
     /// clean finish, the failure sound when the model reported an error
     /// (connection failure, timeout, output failure, rate limiting, …).
     static let enableCLIFinishSound = Key<Bool>("enableCLIFinishSound", default: true)
-    static let cliSuccessSoundPath = Key<String>("cliSuccessSoundPath", default: "~/Downloads/成功.mp3")
-    static let cliFailureSoundPath = Key<String>("cliFailureSoundPath", default: "~/Downloads/失败.mp3")
+    /// Sound files live in Atoll's own Application Support folder so they can't
+    /// vanish with a Downloads cleanup; scripts/install-sounds.sh puts them
+    /// there. A missing file falls back to the system sound.
+    static let cliSoundsDirectory = "~/Library/Application Support/Atoll/Sounds"
+    static let cliSuccessSoundPath = Key<String>("cliSuccessSoundPath", default: "~/Library/Application Support/Atoll/Sounds/成功.mp3")
+    static let cliFailureSoundPath = Key<String>("cliFailureSoundPath", default: "~/Library/Application Support/Atoll/Sounds/错误.mp3")
+    /// Played while a CLI is blocked on a confirmation: a permission prompt,
+    /// an approval dialog, or "waiting for your input".
+    static let cliConfirmSoundPath = Key<String>("cliConfirmSoundPath", default: "~/Library/Application Support/Atoll/Sounds/手动确认.mp3")
     static let newAPIAccounts = Key<[NewAPIAccount]>("newAPIAccounts", default: [])
     static let autoStartStatsMonitoring = Key<Bool>("autoStartStatsMonitoring", default: true)
     static let statsStopWhenNotchCloses = Key<Bool>("statsStopWhenNotchCloses", default: true)

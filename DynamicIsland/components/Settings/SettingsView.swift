@@ -9649,15 +9649,18 @@ struct CLIFinishSoundSettingsSection: View {
             }
             .settingsHighlight(id: SettingsTab.media.highlightID(for: "Play a sound when a task finishes"))
 
-            soundRow(title: "Success sound", key: .cliSuccessSoundPath, success: true)
+            soundRow(title: "Success sound", key: .cliSuccessSoundPath, kind: .success)
                 .settingsHighlight(id: SettingsTab.media.highlightID(for: "Success sound"))
 
-            soundRow(title: "Failure sound", key: .cliFailureSoundPath, success: false)
+            soundRow(title: "Failure sound", key: .cliFailureSoundPath, kind: .failure)
                 .settingsHighlight(id: SettingsTab.media.highlightID(for: "Failure sound"))
+
+            soundRow(title: "Confirmation sound", key: .cliConfirmSoundPath, kind: .confirmation)
+                .settingsHighlight(id: SettingsTab.media.highlightID(for: "Confirmation sound"))
         } header: {
             Text("Finish Sound")
         } footer: {
-            Text("Plays the success sound when a CLI task ends normally, and the failure sound when the model reported an error — connection failure, request timeout, output failure, rate limiting. Leave a path empty to use the system sound.")
+            Text("Success plays when a CLI task ends normally; failure when the model reported an error (connection, timeout, output, rate limiting) or the last tool failed; confirmation when the agent is blocked waiting for you — a permission prompt or approval dialog. Leave a path empty to use the system sound.")
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(.secondary)
                 .font(.caption)
@@ -9665,7 +9668,7 @@ struct CLIFinishSoundSettingsSection: View {
     }
 
     @ViewBuilder
-    private func soundRow(title: String, key: Defaults.Key<String>, success: Bool) -> some View {
+    private func soundRow(title: String, key: Defaults.Key<String>, kind: CLIFinishSound.Kind) -> some View {
         let path = Defaults[key]
         let exists = CLIFinishSound.fileExists(path)
 
@@ -9687,7 +9690,7 @@ struct CLIFinishSoundSettingsSection: View {
                 .help(exists ? "File found" : "File not found — the system sound is used instead")
 
             Button {
-                CLIFinishSound.preview(success: success)
+                CLIFinishSound.preview(kind)
             } label: {
                 Image(systemName: "play.circle")
             }

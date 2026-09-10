@@ -49,10 +49,28 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
 
 | 情况 | 音效 |
 |---|---|
-| 任务正常结束 | 成功音效（默认 `~/Downloads/成功.mp3`） |
-| 模型连接失败 / 连接超时 / 输出失败 / 限流等 | 失败音效（默认 `~/Downloads/失败.mp3`） |
-| 本轮最后一个工具执行失败（命令返回非 0、读取失败等） | 失败音效 |
+| 任务正常结束 | **成功** |
+| 模型连接失败 / 连接超时 / 输出失败 / 限流 / 被中断 | **失败** |
+| 本轮最后一个工具执行失败（命令非 0 退出、读取失败…） | **失败** |
+| 智能体卡在等人确认（权限弹窗、批准对话框、"等待输入"） | **手动确认** |
 | pi 进程直接消失（来不及上报状态） | 不播放 |
+
+音效文件放在 Atoll 自己的目录，不会因为「下载」文件夹被清理而失效：
+
+```
+~/Library/Application Support/Atoll/Sounds/
+  成功.mp3        成功音
+  错误.mp3        失败音（也认 失败.mp3 / error.mp3 / failure.mp3）
+  手动确认.mp3    确认音（也认 确认.mp3 / confirm.mp3）
+```
+
+```bash
+bash scripts/install-sounds.sh            # 从 ~/Downloads 复制并写好设置
+bash scripts/install-sounds.sh ~/Desktop  # 或指定目录
+```
+
+- 也可以在设置里直接改三个路径，每行有"文件是否存在"提示与试听按钮；留空或文件缺失时回退到系统音（`Glass` / `Basso` / `Ping`）
+- 播放使用 `AVAudioPlayer`（不受系统"提醒音量"影响——那个经常是 0）
 
 - 两个音效路径都能在设置里改，带"文件是否存在"提示与试听按钮；留空则回退到系统音（`Glass` / `Basso`）
 - "本轮最后一个工具失败"采用**最后一次工具**的成败：pi 先失败后修好并成功，结尾仍是成功音
@@ -84,6 +102,8 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
 | `SessionStart` / `UserPromptSubmit` | busy、重置任务列表 |
 | `PreToolUse` / `PostToolUse` | 当前工具与目标（Read/shell→read/bash、apply_patch→edit、update_plan→todo…） |
 | `PostToolUseFailure`（Claude） | 该工具失败 → `failed` |
+| `PermissionRequest` / `Notification`（Claude、Codex） | 正在等用户确认 → `confirm` |
+| `ui_prompt_start` / `ui_prompt_end`（pi） | 正在等用户确认 → `confirm` |
 | `post_tool_use` 的 `is_error` / `exit_code != 0`（Codex） | 该工具失败 → `failed` |
 | `Stop` / `SessionEnd` | idle；并检查 transcript 的 `isApiErrorMessage` → `error` |
 
@@ -96,7 +116,8 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
   "usage": { "input": 88, "output": 90, "cacheRead": 7808 },
   "cacheHitRate": 0.9888,
   "error": "429: {…}",   // 模型/连接/输出失败时才有
-  "failed": true }       // 本轮最后一个工具执行失败时才有
+  "failed": true,        // 本轮最后一个工具执行失败时才有
+  "confirm": "bash rm -rf build" }   // 卡在等用户确认时才有
 ```
 
 > TodoWrite 会把标记为 `in_progress` 的待办内容当作当前任务显示。
@@ -129,6 +150,7 @@ bash scripts/install-pi-hook.sh          # pi：复制到 ~/.pi/agent/extensions
 bash scripts/install-claude-hook.sh      # Claude Code：合并进 ~/.claude/settings.json
 bash scripts/install-codex-hook.sh       # Codex：合并进 ~/.codex/hooks.json
 bash scripts/install-codex-hook.sh --uninstall
+bash scripts/install-sounds.sh           # 把音效文件装到 Atoll 目录
 ```
 
 三个 CLI 的 hook 都在会话启动时加载，安装后需要新开一个会话（pi 也可以直接 `/reload`）。
@@ -161,12 +183,13 @@ scripts/
   install-pi-hook.sh                pi hook 安装/卸载
   install-claude-hook.sh            Claude Code hook 安装/卸载
   install-codex-hook.sh             Codex hook 安装/卸载
+  install-sounds.sh                 音效文件复制到 Application Support
 DynamicIsland/
   managers/PiSessionMonitor.swift       pi 会话监视（状态文件 + JSONL 兜底）
   managers/CodexSessionMonitor.swift    Codex rollout 解析
   managers/ClaudeSessionMonitor.swift   Claude transcript 解析 + hook 状态
   managers/CLIActivityDebugLog.swift    诊断日志（默认关闭）
-  managers/CLIFinishSound.swift         结束音效（成功/失败，含系统音回退）
+  managers/CLIFinishSound.swift         音效（成功/失败/手动确认，含系统音回退）
   models/CLIUsage.swift                 token 用量 / 命中率（三种 provider 归一化）
   models/CLIToolActivity.swift          当前工具与任务列表
   components/Pi|Codex|Claude/           三个 CLI 的收起态活动

@@ -168,6 +168,8 @@ def write_status(state: dict) -> None:
         payload["tasks"] = tasks[-MAX_TASKS:]
     if state.get("failed"):
         payload["failed"] = True
+    if state.get("confirm"):
+        payload["confirm"] = state["confirm"]
     if state.get("error"):
         payload["error"] = state["error"]
 
@@ -253,6 +255,29 @@ def transcript_error(path: object) -> str | None:
     return None
 
 
+# Notifications that mean "the user has to do something" rather than chatter.
+CONFIRM_HINTS = ("permission", "waiting for your input", "needs your", "approve", "confirm", "allow")
+
+
+def confirmation_label(event: dict) -> str | None:
+    """What the CLI is waiting for, or nil when it is not waiting on the user."""
+    hook = normalize_event(str(event.get("hook_event_name") or ""))
+    message = str(event.get("message") or event.get("title") or "").strip()
+
+    if hook == "notification":
+        lowered = message.lower()
+        if not any(hint in lowered for hint in CONFIRM_HINTS):
+            return None
+        return message or None
+
+    # PermissionRequest: name the tool that wants the go-ahead.
+    name = normalize_tool_name(str(event.get("tool_name") or ""))
+    target = tool_target(name, event.get("tool_input"))
+    if name and name != "tool":
+        return f"{name} {target}".strip() if target else name
+    return message or "Waiting for confirmation"
+
+
 def handle(event: dict) -> dict:
     hook = normalize_event(str(event.get("hook_event_name") or ""))
     now_ms = int(time.time() * 1000)
@@ -265,6 +290,13 @@ def handle(event: dict) -> dict:
     elif hook == "userpromptsubmit":
         # A new prompt starts a fresh task list.
         state = {"busy": True, "since": now_ms, "tasks": []}
+
+    elif hook in ("permissionrequest", "notification"):
+        label = confirmation_label(event)
+        if label:
+            state["confirm"] = label
+        else:
+            state.pop("confirm", None)
 
     elif hook == "pretooluse":
         name = normalize_tool_name(str(event.get("tool_name") or ""))
@@ -284,6 +316,8 @@ def handle(event: dict) -> dict:
             )
         state["tasks"] = tasks[-MAX_TASKS:]
         state["busy"] = True
+        # The user answered the prompt and the tool is running.
+        state.pop("confirm", None)
 
     elif hook in ("posttooluse", "posttoolusefailure"):
         name = normalize_tool_name(str(event.get("tool_name") or ""))
@@ -295,6 +329,7 @@ def handle(event: dict) -> dict:
         # `PostToolUseFailure` is an outright failure; a plain PostToolUse only
         # counts as one when the response says so.
         state["failed"] = hook == "posttoolusefailure" or payload_failed(event)
+        state.pop("confirm", None)
 
     elif hook in ("stop", "sessionend"):
         # The turn finished (or the session ended): nothing is executing.
@@ -303,6 +338,7 @@ def handle(event: dict) -> dict:
                 task["state"] = "completed"
         state["busy"] = False
         state["tasks"] = tasks[-MAX_TASKS:]
+        state.pop("confirm", None)
         error = transcript_error(event.get("transcript_path"))
         if error:
             state["error"] = error

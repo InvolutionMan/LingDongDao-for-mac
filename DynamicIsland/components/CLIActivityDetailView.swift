@@ -191,6 +191,8 @@ struct CLIActivityDetailView: View {
             // line instead, because that is why nothing is running.
             if let error = detail.errorMessage {
                 errorRow(error)
+            } else if let confirmation = detail.confirmation {
+                confirmationRow(confirmation)
             } else if let task = currentTask(detail) {
                 taskLine(name: task.name, target: task.target, isRunning: task.isRunning)
             } else {
@@ -226,6 +228,8 @@ struct CLIActivityDetailView: View {
     private func activityLine(_ activity: CLIToolActivity?, isBusy: Bool) -> some View {
         if let error = activity?.errorMessage {
             errorRow(error)
+        } else if let confirmation = activity?.confirmation {
+            confirmationRow(confirmation)
         } else if let current = activity?.current {
             taskLine(name: current.name, target: current.target, isRunning: current.isRunning)
         } else {
@@ -233,6 +237,30 @@ struct CLIActivityDetailView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.35))
         }
+    }
+
+    /// The agent is blocked until the user answers: say what it wants.
+    private func confirmationRow(_ confirmation: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "hand.raised.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(confirmationColor)
+
+            Text("Waiting for confirmation")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(confirmationColor)
+
+            Text(confirmation)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(confirmation)
+        }
+    }
+
+    private var confirmationColor: Color {
+        Color(red: 0xFF / 255.0, green: 0x9F / 255.0, blue: 0x0A / 255.0)
     }
 
     private func errorRow(_ error: String) -> some View {

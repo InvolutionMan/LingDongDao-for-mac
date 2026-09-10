@@ -29,6 +29,9 @@ struct CLIToolActivity: Equatable {
     var toolFailed: Bool = false
     /// Provider failure text (connection, timeout, rate limit, …).
     var errorMessage: String?
+    /// Set while the agent is blocked waiting for the user (permission prompt,
+    /// approval dialog, "waiting for your input").
+    var confirmation: String?
 
     /// The single task the panel shows.
     var current: (name: String, target: String?, isRunning: Bool)? {
@@ -43,6 +46,7 @@ struct CLIToolActivity: Equatable {
 
     var isEmpty: Bool {
         toolName == nil && tasks.isEmpty && !toolFailed && errorMessage == nil
+            && confirmation == nil
     }
 
     /// True when the turn finished without a tool failure or provider error.
@@ -76,6 +80,9 @@ struct CLIToolActivity: Equatable {
             activity.errorMessage = error
         }
         activity.toolFailed = (obj["failed"] as? Bool) ?? false
+        if let confirm = obj["confirm"] as? String, !confirm.isEmpty {
+            activity.confirmation = confirm
+        }
 
         return activity.isEmpty ? nil : activity
     }

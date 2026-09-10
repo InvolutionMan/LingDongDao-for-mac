@@ -233,6 +233,11 @@ final class ClaudeSessionMonitor: ObservableObject {
         thinkingLevel = sample.thinkingLevel
         usage = sample.usage
         activity = sample.activity
+        // Waiting for the user's confirmation is an edge, not a state: chime
+        // once per prompt.
+        if let confirm = sample.activity?.confirmation, confirm != previousActivity?.confirmation {
+            CLIFinishSound.play(.confirmation, reason: confirm)
+        }
         if sample.activity != previousActivity {
             let line = sample.activity?.current.map {
                 "\($0.name) \($0.target ?? "-") \($0.isRunning ? "running" : "idle")"
@@ -264,7 +269,10 @@ final class ClaudeSessionMonitor: ObservableObject {
             // non-zero exit) and provider errors, so the sound matches the
             // outcome exactly like pi's.
             let succeeded = sample.activity?.finishedSuccessfully ?? true
-            CLIFinishSound.play(success: succeeded)
+            CLIFinishSound.play(
+                succeeded ? .success : .failure,
+                reason: succeeded ? nil : (sample.activity?.errorMessage ?? "tool failed")
+            )
             CLIActivityDebugLog.record(
                 "claude finish: \(succeeded ? "success" : "failure") error=\(sample.activity?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.activity?.toolFailed == true ? 1 : 0)"
             )

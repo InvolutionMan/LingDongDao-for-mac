@@ -52,10 +52,13 @@ struct PiLiveDetail: Equatable {
     /// The turn's last tool finished with an error (failed command, read, …),
     /// which counts as a failed task for the finish sound.
     var toolFailed: Bool = false
+    /// Set while pi is blocked waiting for the user (permission prompt,
+    /// approval dialog): the notch plays the confirmation sound and says so.
+    var confirmation: String?
 
     var isEmpty: Bool {
         toolName == nil && totalTokens == nil && cacheHitRate == nil && tasks.isEmpty
-            && errorMessage == nil && !toolFailed
+            && errorMessage == nil && !toolFailed && confirmation == nil
     }
 }
 
@@ -341,6 +344,12 @@ final class PiSessionMonitor: ObservableObject {
         model = sample.model
         thinkingLevel = sample.thinkingLevel
         detail = sample.detail
+        // Waiting for the user's confirmation is an edge, not a state: chime
+        // once per prompt.
+        if let confirm = sample.detail?.confirmation, confirm != previousDetail?.confirmation {
+            CLIFinishSound.play(.confirmation, reason: confirm)
+        }
+
         // One line per change (not per poll) so the support log shows whether the
         // pi extension's tool/task data actually reached the app.
         if sample.detail != previousDetail {
@@ -374,7 +383,10 @@ final class PiSessionMonitor: ObservableObject {
                 // A provider error (connection, timeout, output, rate limit) or
                 // a turn whose last tool failed both count as a failure.
                 let succeeded = detail.errorMessage == nil && !detail.toolFailed
-                CLIFinishSound.play(success: succeeded)
+                CLIFinishSound.play(
+                    succeeded ? .success : .failure,
+                    reason: succeeded ? nil : (detail.errorMessage ?? "tool failed")
+                )
                 CLIActivityDebugLog.record(
                     "finish: \(succeeded ? "success" : "failure") error=\(detail.errorMessage != nil ? 1 : 0) toolFailed=\(detail.toolFailed ? 1 : 0)"
                 )
@@ -540,6 +552,9 @@ final class PiSessionMonitor: ObservableObject {
         }
 
         detail.toolFailed = (obj["failed"] as? Bool) ?? false
+        if let confirm = obj["confirm"] as? String, !confirm.isEmpty {
+            detail.confirmation = confirm
+        }
 
         return detail.isEmpty ? nil : detail
     }

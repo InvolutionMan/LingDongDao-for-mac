@@ -59,6 +59,8 @@ export default function (pi: ExtensionAPI) {
   /// command / read / edit. Cleared by a later successful tool and at the start
   /// of a new request, so "the turn ended on a failure" can be reported.
   let lastToolFailed = false;
+  /// Set while pi is blocked on a user-facing prompt (permission / approval).
+  let confirmation: string | undefined;
 
   // `pi.model` / `pi.thinkingLevel` do not exist on the extension API: the
   // model and thinking level arrive through the handler's context, and the
@@ -85,6 +87,7 @@ export default function (pi: ExtensionAPI) {
       if (thinking) payload.thinkingLevel = thinking;
       if (error) payload.error = error;
       if (lastToolFailed) payload.failed = true;
+      if (confirmation) payload.confirm = confirmation;
       if (current) {
         payload.tool = {
           name: current.name,
@@ -133,6 +136,7 @@ export default function (pi: ExtensionAPI) {
     since = Date.now();
     error = undefined;
     lastToolFailed = false;
+    confirmation = undefined;
     model = resolveModel(ctx) ?? model;
     thinking = resolveThinking(ctx) ?? thinking;
     // A new user request starts a fresh task list. (`turn_start` fires per
@@ -227,6 +231,19 @@ export default function (pi: ExtensionAPI) {
     // pi reports whether this tool failed (non-zero exit, read error, …). The
     // flag tracks the *latest* tool, so a turn that recovers ends as a success.
     lastToolFailed = event.isError === true;
+    write();
+  });
+
+  // pi blocks on a user-facing prompt (permission / approval / question):
+  // report it so the notch can play the confirmation sound and say what it
+  // wants.
+  pi.on("ui_prompt_start", async (event) => {
+    confirmation = event.title ?? event.kind ?? "Waiting for confirmation";
+    write();
+  });
+
+  pi.on("ui_prompt_end", async () => {
+    confirmation = undefined;
     write();
   });
 

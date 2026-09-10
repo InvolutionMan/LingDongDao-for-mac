@@ -116,6 +116,28 @@ def main() -> int:
         status = claude.fire({"hook_event_name": "Stop", "transcript_path": str(transcript)})
         check("error captured", status.get("error") == "Rate limit exceeded: free-models-per-day", json.dumps(status))
 
+        print("confirmation: a permission prompt chimes, the answer clears it")
+        claude.fire({"hook_event_name": "UserPromptSubmit", "prompt": "delete the file"})
+        status = claude.fire(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "rm -rf build"},
+            }
+        )
+        check("confirm label", status.get("confirm") == "bash rm -rf build", json.dumps(status))
+
+        status = claude.fire(
+            {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_use_id": "p1", "tool_input": {"command": "rm -rf build"}}
+        )
+        check("cleared once the tool runs", "confirm" not in status, json.dumps(status))
+
+        status = claude.fire({"hook_event_name": "Notification", "message": "Claude needs your permission to use Bash"})
+        check("notification with permission -> confirm", status.get("confirm", "").startswith("Claude needs your permission"), json.dumps(status))
+
+        status = claude.fire({"hook_event_name": "Notification", "message": "Background task finished"})
+        check("chatter is not a confirmation", "confirm" not in status, json.dumps(status))
+
         print("Codex: snake_case events and is_error are understood")
         status = codex.fire({"hook_event_name": "session_start"})
         check("session start is idle", status["busy"] is False)

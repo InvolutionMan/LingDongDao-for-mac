@@ -12,6 +12,7 @@
 #   SessionStart / UserPromptSubmit   -> busy, fresh task list
 #   PreToolUse / PostToolUse          -> the running tool and the turn's tasks
 #   PostToolUseFailure                -> the turn is marked failed
+#   PermissionRequest / Notification  -> the agent is waiting on the user
 #   Stop / SessionEnd                 -> idle (+ an API error from the transcript)
 #
 # Usage: scripts/install-claude-hook.sh [--uninstall]
@@ -93,7 +94,7 @@ if not isinstance(settings, dict):
     settings = {}
 
 command = f'"{python_bin}" "$HOME/.claude/atoll-notch-status.py"'
-events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"]
+events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Notification", "Stop", "SessionEnd"]
 
 hooks = settings.setdefault("hooks", {})
 for event in events:

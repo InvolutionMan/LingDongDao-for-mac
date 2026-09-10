@@ -13,6 +13,7 @@
 #   PreToolUse / PostToolUse        -> the running tool, the turn's tasks and
 #                                      whether the tool failed (is_error /
 #                                      non-zero exit / interrupted)
+#   PermissionRequest               -> the agent is waiting on the user
 #   Stop                            -> idle
 #
 # Usage: scripts/install-codex-hook.sh [--uninstall]
@@ -94,7 +95,7 @@ if not isinstance(config, dict):
     config = {}
 
 command = f'"{python_bin}" "$HOME/.codex/atoll-notch-status.py"'
-events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop"]
 
 hooks = config.setdefault("hooks", {})
 for event in events:

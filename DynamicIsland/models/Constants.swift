@@ -1185,7 +1185,10 @@ extension Defaults.Keys {
         // MARK: Fullscreen Media Detection
     static let alwaysHideInFullscreen = Key<Bool>("alwaysHideInFullscreen", default: false)
     
-    static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .nowPlayingOnly)
+    /// `.always` hides the closed island whenever an app covers the menu bar
+    /// (native fullscreen, browser video fullscreen, games); `.nowPlayingOnly`
+    /// restricts that to the app that is currently playing media.
+    static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .always)
     
     // MARK: Wobble Animation
     static let enableWobbleAnimation = Key<Bool>("enableWobbleAnimation", default: false)

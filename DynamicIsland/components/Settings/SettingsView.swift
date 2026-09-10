@@ -3537,13 +3537,17 @@ struct Media: View {
                 Text("Hide DynamicIsland Options")
                 customBadge(text: "Beta")
             }) {
-                Text("Always hide in fullscreen").tag(HideNotchOption.always)
+                Text("Hide when any app covers the menu bar").tag(HideNotchOption.always)
                 Text("Hide only when NowPlaying app is in fullscreen").tag(HideNotchOption.nowPlayingOnly)
                 Text("Never hide").tag(HideNotchOption.never)
             }
             .onChange(of: hideNotchOption) {
                 Defaults[.enableFullscreenMediaDetection] = hideNotchOption != .never
             }
+            Text("The island hides whenever a window covers the system menu bar — native fullscreen apps, games, and browser video fullscreen (YouTube, Bilibili) alike. A zoomed window that stops below the menu bar never hides it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .navigationTitle("Media")
     }

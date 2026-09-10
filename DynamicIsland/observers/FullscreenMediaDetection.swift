@@ -117,27 +117,28 @@ class FullscreenMediaDetector: ObservableObject {
         let hideOption = Defaults[.hideNotchOption]
         let selfPID = ProcessInfo.processInfo.processIdentifier
 
-        // Windows that cover the whole screen — right up to the very top edge
-        // where the menu bar sits. Native fullscreen Spaces present that way,
-        // and so does *element* fullscreen in browsers (YouTube / Bilibili
-        // video players) which never enters a Space and never sets AXFullScreen.
-        // A plain maximized/zoomed window stops below the menu bar, so it is
-        // excluded by the top-edge test.
-        var fullBleedOwners: [String: [String?]] = [:]
+        // Windows that cover the *menu bar*: they reach the screen's very top
+        // edge and span its full width, which is exactly what hides the system
+        // menu bar. Native fullscreen Spaces present that way, and so does
+        // *element* fullscreen in browsers (YouTube / Bilibili video players)
+        // which never enters a Space and never sets AXFullScreen — as do
+        // borderless games and video players. A plain maximized/zoomed window
+        // stops below the menu bar, so the top-edge test excludes it.
+        var menuBarOwners: [String: [String?]] = [:]
         for window in onScreenWindows() {
             guard window.pid != selfPID,
                   window.owner != "com.apple.finder",
                   window.owner != "com.apple.dock",
                   let screen = screens.first(where: { $0.frame.contains(CGPoint(x: window.frame.midX, y: window.frame.midY)) }),
-                  isFullBleed(window.frame, on: screen) else { continue }
-            fullBleedOwners[screen.localizedName, default: []].append(window.owner)
+                  coversMenuBar(window.frame, on: screen) else { continue }
+            menuBarOwners[screen.localizedName, default: []].append(window.owner)
         }
 
         let playingBundle = musicManager.bundleIdentifier
 
         var newStatus: [String: Bool] = [:]
         for screen in screens {
-            let owners = fullBleedOwners[screen.localizedName] ?? []
+            let owners = menuBarOwners[screen.localizedName] ?? []
             let shouldHide: Bool
             switch hideOption {
             case .always:
@@ -156,21 +157,24 @@ class FullscreenMediaDetector: ObservableObject {
 
         if newStatus != fullscreenStatus {
             fullscreenStatus = newStatus
-            NSLog("✅ Fullscreen status: \(newStatus)")
+            // Goes to ~/.pi/agent/atoll-cli-debug.log when the debug flag is on,
+            // and to the unified log otherwise.
+            CLIActivityDebugLog.record("fullscreen menu-bar covered: \(newStatus)")
         }
     }
 
-    /// True when the window reaches all four edges of the screen: top flush
-    /// with `screen.maxY` (past the menu-bar strip), bottom at the screen's
-    /// bottom, and spanning the full width. Tolerances mirror the
-    /// CGWindow/Quartz imprecision on scaled and multi-display setups.
-    private func isFullBleed(_ frame: CGRect, on screen: NSScreen) -> Bool {
+    /// True when the window is covering the menu bar: it reaches the screen's
+    /// top edge and spans its full width, so the menu-bar strip has nothing
+    /// left to draw on. Tolerances mirror the CGWindow/Quartz imprecision on
+    /// scaled and multi-display setups; the height floor keeps a thin
+    /// full-width overlay (a banner, a docked strip) from counting as
+    /// fullscreen.
+    private func coversMenuBar(_ frame: CGRect, on screen: NSScreen) -> Bool {
         let screenFrame = screen.frame
         let tolerance: CGFloat = 4
         return frame.width >= screenFrame.width - tolerance
-            && frame.height >= screenFrame.height - tolerance
-            && abs(frame.maxY - screenFrame.maxY) <= tolerance
-            && abs(frame.minY - screenFrame.minY) <= tolerance
+            && frame.height >= screenFrame.height / 2
+            && frame.maxY >= screenFrame.maxY - tolerance
     }
 
     /// Snapshot of on-screen windows (AppKit coordinates, bottom-left origin).

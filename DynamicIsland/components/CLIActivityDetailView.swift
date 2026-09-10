@@ -97,6 +97,7 @@ struct CLIActivityDetailView: View {
             started: codexStarted,
             frozenTime: codexFrozenTime
         ) {
+            activityLine(codexMonitor.activity, isBusy: codexMonitor.isBusy)
             usageStats(codexMonitor.usage)
         }
     }
@@ -116,13 +117,7 @@ struct CLIActivityDetailView: View {
             started: claudeStarted,
             frozenTime: claudeFrozenTime
         ) {
-            if let current = claudeMonitor.activity?.current {
-                taskLine(name: current.name, target: current.target, isRunning: current.isRunning)
-            } else {
-                Text(claudeMonitor.isBusy ? "Working…" : "No tool activity yet")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.35))
-            }
+            activityLine(claudeMonitor.activity, isBusy: claudeMonitor.isBusy)
             usageStats(claudeMonitor.usage)
         }
     }
@@ -195,18 +190,7 @@ struct CLIActivityDetailView: View {
             // calls are deliberately not listed. A provider failure takes the
             // line instead, because that is why nothing is running.
             if let error = detail.errorMessage {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(errorColor)
-
-                    Text(shortError(error))
-                        .font(.system(size: 12))
-                        .foregroundStyle(errorColor)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(error)
-                }
+                errorRow(error)
             } else if let task = currentTask(detail) {
                 taskLine(name: task.name, target: task.target, isRunning: task.isRunning)
             } else {
@@ -235,7 +219,38 @@ struct CLIActivityDetailView: View {
         }
     }
 
-    /// The one-line "what is it doing right now" row, shared by pi and Claude.
+    /// What a Codex / Claude card shows on its task line: the provider error
+    /// when the turn died on one, otherwise the task running now, otherwise a
+    /// status word.
+    @ViewBuilder
+    private func activityLine(_ activity: CLIToolActivity?, isBusy: Bool) -> some View {
+        if let error = activity?.errorMessage {
+            errorRow(error)
+        } else if let current = activity?.current {
+            taskLine(name: current.name, target: current.target, isRunning: current.isRunning)
+        } else {
+            Text(isBusy ? "Working…" : "No tool activity yet")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.35))
+        }
+    }
+
+    private func errorRow(_ error: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(errorColor)
+
+            Text(shortError(error))
+                .font(.system(size: 12))
+                .foregroundStyle(errorColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(error)
+        }
+    }
+
+    /// The one-line "what is it doing right now" row, shared by every CLI card.
     @ViewBuilder
     private func taskLine(name: String, target: String?, isRunning: Bool) -> some View {
         HStack(spacing: 8) {

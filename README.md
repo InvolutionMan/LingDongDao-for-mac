@@ -43,9 +43,9 @@ Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
 
 pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
 
-### 4. 结束音效
+### 4. 结束音效（pi / Codex / Claude Code）
 
-任务结束时播放声音（设置 → 媒体 → **Finish Sound**，可关闭）：
+任一 CLI 任务结束时播放声音（设置 → 媒体 → **Finish Sound**，可关闭）：
 
 | 情况 | 音效 |
 |---|---|
@@ -56,7 +56,10 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
 
 - 两个音效路径都能在设置里改，带"文件是否存在"提示与试听按钮；留空则回退到系统音（`Glass` / `Basso`）
 - "本轮最后一个工具失败"采用**最后一次工具**的成败：pi 先失败后修好并成功，结尾仍是成功音
-- 判定来源：pi 的 assistant 消息 `stopReason: error/aborted`（hook 写成 `error` 字段），以及 `tool_execution_end` 的 `isError`（hook 写成 `failed` 字段）
+- 判定来源（三个 CLI 语义一致）：
+  - pi：消息 `stopReason: error/aborted` → `error` 字段；`tool_execution_end.isError` → `failed` 字段
+  - Claude Code：`PostToolUseFailure` 事件 → `failed`；transcript 里的 `isApiErrorMessage` → `error`
+  - Codex：`post_tool_use` 的 `is_error` / `tool_response.exit_code != 0` / `interrupted` → `failed`
 
 ### 5. Hook：实时行为检测
 
@@ -72,13 +75,17 @@ pi + Codex + Claude 同时工作时，灵动岛**长度不变、只变厚**，�
 | `agent_settled` / `session_shutdown` | idle |
 | 模型 / 思考等级切换 | 模型、思考程度 |
 
-**Claude Code** — `hooks/claude/atoll-notch-status.py`（注册在 `~/.claude/settings.json`）
+**Claude Code & Codex** — `hooks/cli/atoll-notch-status.py`（同一个脚本，分别注册在 `~/.claude/settings.json` 与 `~/.codex/hooks.json`；脚本把状态写在**自己所在目录**，所以两份互不干扰）
+
+两个 CLI 的 hook 输入字段一致（`hook_event_name` / `tool_name` / `tool_input` / `tool_response` / `is_error` / `transcript_path`），事件名两种写法都认（`PostToolUse` 与 `post_tool_use`）。
 
 | 事件 | 上报 |
 |---|---|
 | `SessionStart` / `UserPromptSubmit` | busy、重置任务列表 |
-| `PreToolUse` / `PostToolUse` | 当前工具与目标（Read→read、Bash→bash、Grep→grep…） |
-| `Stop` / `SessionEnd` | idle |
+| `PreToolUse` / `PostToolUse` | 当前工具与目标（Read/shell→read/bash、apply_patch→edit、update_plan→todo…） |
+| `PostToolUseFailure`（Claude） | 该工具失败 → `failed` |
+| `post_tool_use` 的 `is_error` / `exit_code != 0`（Codex） | 该工具失败 → `failed` |
+| `Stop` / `SessionEnd` | idle；并检查 transcript 的 `isApiErrorMessage` → `error` |
 
 工具名归一化后写入状态文件，格式与 pi 一致：
 
@@ -120,17 +127,19 @@ bash scripts/install-local.sh
 ```bash
 bash scripts/install-pi-hook.sh          # pi：复制到 ~/.pi/agent/extensions/
 bash scripts/install-claude-hook.sh      # Claude Code：合并进 ~/.claude/settings.json
-bash scripts/install-claude-hook.sh --uninstall
+bash scripts/install-codex-hook.sh       # Codex：合并进 ~/.codex/hooks.json
+bash scripts/install-codex-hook.sh --uninstall
 ```
 
-Claude Code 的 hook 在会话启动时加载，安装后需要新开一个会话。
+三个 CLI 的 hook 都在会话启动时加载，安装后需要新开一个会话（pi 也可以直接 `/reload`）。
+合并脚本会**保留你已有的 hook**（例如 Codex 里其他灵动岛应用的条目）。
 
 ### 测试
 
 ```bash
 # hook 契约测试（不消耗模型额度）
 node --experimental-strip-types --test hooks/pi/atoll-notch-status.test.mjs
-python3 hooks/claude/atoll-notch-status.test.py
+python3 hooks/cli/atoll-notch-status.test.py
 
 # App 单元测试
 xcodebuild test -scheme DynamicIsland -destination 'platform=macOS' \
@@ -146,11 +155,12 @@ xcodebuild test -scheme DynamicIsland -destination 'platform=macOS' \
 ```
 hooks/
   pi/atoll-notch-status.ts          pi 状态桥接（+ 契约测试）
-  claude/atoll-notch-status.py      Claude Code 状态桥接（+ 契约测试）
+  cli/atoll-notch-status.py         Claude Code / Codex 共用桥接（+ 契约测试）
 scripts/
   install-local.sh                  构建 + 安装到 /Applications
   install-pi-hook.sh                pi hook 安装/卸载
   install-claude-hook.sh            Claude Code hook 安装/卸载
+  install-codex-hook.sh             Codex hook 安装/卸载
 DynamicIsland/
   managers/PiSessionMonitor.swift       pi 会话监视（状态文件 + JSONL 兜底）
   managers/CodexSessionMonitor.swift    Codex rollout 解析

@@ -197,6 +197,7 @@ final class CodexSessionMonitor: ObservableObject {
         var model: String?
         var thinkingLevel: String?
         var usage: CLIUsage?
+        var activity: CLIToolActivity?
     }
 
     @Published private(set) var phase: CodexActivityPhase = .idle
@@ -213,9 +214,20 @@ final class CodexSessionMonitor: ObservableObject {
     /// from the rollout's `token_count` events. Nil when unknown.
     @Published private(set) var usage: CLIUsage?
 
+    /// What Codex is executing right now — the running tool, the turn's tasks
+    /// and whether it failed, written by the Codex hook (~/.codex/hooks.json).
+    @Published private(set) var activity: CLIToolActivity?
+
     /// True while the activity should be on screen (running or showing the
     /// completion checkmark).
     var isActive: Bool { phase != .idle }
+
+    /// True while a turn is in flight — the panel says "Working…" instead of
+    /// "No tool activity yet" in the gap between two tool calls.
+    var isBusy: Bool {
+        if case .running = phase { return true }
+        return false
+    }
 
     private var pollingSource: DispatchSourceTimer?
     private var statusFileSource: DispatchSourceFileSystemObject?
@@ -254,14 +266,23 @@ final class CodexSessionMonitor: ObservableObject {
             model = nil
             thinkingLevel = nil
             usage = nil
+            activity = nil
         }
     }
 
     private func apply(_ sample: CodexSessionSample) {
         let previousUsage = usage
+        let previousActivity = activity
         model = sample.model
         thinkingLevel = sample.thinkingLevel
         usage = sample.usage
+        activity = sample.activity
+        if sample.activity != previousActivity {
+            let line = sample.activity?.current.map {
+                "\($0.name) \($0.target ?? "-") \($0.isRunning ? "running" : "idle")"
+            } ?? "none"
+            CLIActivityDebugLog.record("codex activity: \(line)")
+        }
         if sample.usage != previousUsage {
             let hit = sample.usage?.cacheHitRate.map(CLIUsage.percentText) ?? "-"
             CLIActivityDebugLog.record("codex usage: hit=\(hit) tokens=\(sample.usage?.totalTokens ?? 0)")
@@ -283,6 +304,13 @@ final class CodexSessionMonitor: ObservableObject {
             withAnimation(.smooth(duration: 0.3)) {
                 phase = .completed(at: Date(), startedAt: startedAt)
             }
+            // Finish chime: the Codex hook reports failed tools (is_error /
+            // non-zero exit / interrupted), so the sound matches the outcome.
+            let succeeded = sample.activity?.finishedSuccessfully ?? true
+            CLIFinishSound.play(success: succeeded)
+            CLIActivityDebugLog.record(
+                "codex finish: \(succeeded ? "success" : "failure") error=\(sample.activity?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.activity?.toolFailed == true ? 1 : 0)"
+            )
             scheduleIdleReturn()
         }
         // busy=false while already completed or idle: hold the completion beat.
@@ -351,7 +379,7 @@ final class CodexSessionMonitor: ObservableObject {
     /// killed mid-turn, before `task_complete` could fire) must not stick.
     nonisolated static func pollOnce(now: Date = Date(), sessionsRoot: URL? = nil) -> CodexSessionSample {
         guard isCodexProcessRunning() else {
-            return CodexSessionSample(busy: false, since: nil, model: nil, thinkingLevel: nil, usage: nil)
+            return CodexSessionSample(busy: false, since: nil, model: nil, thinkingLevel: nil, usage: nil, activity: nil)
         }
         // Tail details fill any field the status file predates.
         let tailText = newestSessionTailText(now: now, root: sessionsRoot)
@@ -365,7 +393,8 @@ final class CodexSessionMonitor: ObservableObject {
                 since: status.since.map { Date(timeIntervalSince1970: $0 / 1000) },
                 model: status.model ?? tailModel,
                 thinkingLevel: status.thinkingLevel ?? tailThinking,
-                usage: tailUsage
+                usage: tailUsage,
+                activity: status.activity
             )
         }
         return CodexSessionSample(
@@ -373,7 +402,8 @@ final class CodexSessionMonitor: ObservableObject {
             since: tailText.flatMap { CodexSessionTail.since(fromTail: $0) },
             model: tailModel,
             thinkingLevel: tailThinking,
-            usage: tailUsage
+            usage: tailUsage,
+            activity: nil
         )
     }
 
@@ -382,14 +412,16 @@ final class CodexSessionMonitor: ObservableObject {
             .appendingPathComponent(".codex/notch-status.json")
     }
 
-    nonisolated private static func readStatusFile() -> (busy: Bool, since: Double?, model: String?, thinkingLevel: String?)? {
+    nonisolated private static func readStatusFile() -> (
+        busy: Bool, since: Double?, model: String?, thinkingLevel: String?, activity: CLIToolActivity?
+    )? {
         guard let data = try? Data(contentsOf: statusFileURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let busy = obj["busy"] as? Bool else { return nil }
         let since = (obj["since"] as? NSNumber)?.doubleValue
         let model = obj["model"] as? String
         let thinkingLevel = obj["thinkingLevel"] as? String
-        return (busy, since, model, thinkingLevel)
+        return (busy, since, model, thinkingLevel, CLIToolActivity.from(status: obj))
     }
 
     /// Tail text of the newest rollout file that is still plausibly the active

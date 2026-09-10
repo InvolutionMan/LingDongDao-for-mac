@@ -217,6 +217,28 @@ final class ClaudeSessionMonitorTests: XCTestCase {
         XCTAssertEqual(activity?.current?.isRunning, false)
     }
 
+    func testActivityCarriesFailureAndProviderError() {
+        let failedTool: [String: Any] = [
+            "busy": false,
+            "tool": ["name": "bash", "target": "npm test", "pending": false],
+            "tasks": [["id": "t1", "name": "bash", "target": "npm test", "state": "completed"]],
+            "failed": true,
+        ]
+        let activity = CLIToolActivity.from(status: failedTool)
+        XCTAssertEqual(activity?.toolFailed, true)
+        XCTAssertEqual(activity?.finishedSuccessfully, false)
+
+        let providerError = CLIToolActivity.from(status: ["busy": false, "error": "429: rate limit exceeded"])
+        XCTAssertEqual(providerError?.errorMessage, "429: rate limit exceeded")
+        XCTAssertEqual(providerError?.finishedSuccessfully, false)
+
+        let clean = CLIToolActivity.from(status: [
+            "busy": false,
+            "tool": ["name": "read", "target": "a.ts", "pending": false],
+        ])
+        XCTAssertEqual(clean?.finishedSuccessfully, true)
+    }
+
     func testActivityNilWithoutToolData() {
         XCTAssertNil(CLIToolActivity.from(status: ["busy": false, "since": 1]))
         XCTAssertNil(CLIToolActivity.from(status: ["tasks": [["state": "running"]]]))

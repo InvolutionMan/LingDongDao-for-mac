@@ -260,6 +260,14 @@ final class ClaudeSessionMonitor: ObservableObject {
             withAnimation(.smooth(duration: 0.3)) {
                 phase = .completed(at: Date(), startedAt: startedAt)
             }
+            // Finish chime: the hook marks failed tools (`PostToolUseFailure`,
+            // non-zero exit) and provider errors, so the sound matches the
+            // outcome exactly like pi's.
+            let succeeded = sample.activity?.finishedSuccessfully ?? true
+            CLIFinishSound.play(success: succeeded)
+            CLIActivityDebugLog.record(
+                "claude finish: \(succeeded ? "success" : "failure") error=\(sample.activity?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.activity?.toolFailed == true ? 1 : 0)"
+            )
             scheduleIdleReturn()
         }
         // busy=false while already completed or idle: hold the completion beat.

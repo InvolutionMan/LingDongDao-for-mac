@@ -24,6 +24,11 @@ struct CLIToolActivity: Equatable {
     var toolTarget: String?
     var toolIsPending: Bool = false
     var tasks: [Task] = []
+    /// The turn's last tool failed (non-zero exit, failed edit, …) — the hook
+    /// reports it, and the finish sound treats it as a failed task.
+    var toolFailed: Bool = false
+    /// Provider failure text (connection, timeout, rate limit, …).
+    var errorMessage: String?
 
     /// The single task the panel shows.
     var current: (name: String, target: String?, isRunning: Bool)? {
@@ -36,7 +41,12 @@ struct CLIToolActivity: Equatable {
         return nil
     }
 
-    var isEmpty: Bool { toolName == nil && tasks.isEmpty }
+    var isEmpty: Bool {
+        toolName == nil && tasks.isEmpty && !toolFailed && errorMessage == nil
+    }
+
+    /// True when the turn finished without a tool failure or provider error.
+    var finishedSuccessfully: Bool { !toolFailed && errorMessage == nil }
 
     /// Parses the `tool` / `tasks` objects of a hook status file. Returns nil
     /// when the hook reported neither.
@@ -61,6 +71,11 @@ struct CLIToolActivity: Equatable {
                 )
             }
         }
+
+        if let error = obj["error"] as? String, !error.isEmpty {
+            activity.errorMessage = error
+        }
+        activity.toolFailed = (obj["failed"] as? Bool) ?? false
 
         return activity.isEmpty ? nil : activity
     }

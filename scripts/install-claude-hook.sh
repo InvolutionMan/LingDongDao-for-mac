@@ -9,15 +9,16 @@
 # overwrite the new status file with a reduced payload.
 #
 # Events registered:
-#   SessionStart / UserPromptSubmit  -> busy, fresh task list
-#   PreToolUse / PostToolUse         -> the running tool and the turn's tasks
-#   Stop / SessionEnd                -> idle
+#   SessionStart / UserPromptSubmit   -> busy, fresh task list
+#   PreToolUse / PostToolUse          -> the running tool and the turn's tasks
+#   PostToolUseFailure                -> the turn is marked failed
+#   Stop / SessionEnd                 -> idle (+ an API error from the transcript)
 #
 # Usage: scripts/install-claude-hook.sh [--uninstall]
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="$REPO_ROOT/hooks/claude/atoll-notch-status.py"
+SOURCE="$REPO_ROOT/hooks/cli/atoll-notch-status.py"
 CLAUDE_DIR="$HOME/.claude"
 TARGET="$CLAUDE_DIR/atoll-notch-status.py"
 SETTINGS="$CLAUDE_DIR/settings.json"
@@ -92,7 +93,7 @@ if not isinstance(settings, dict):
     settings = {}
 
 command = f'"{python_bin}" "$HOME/.claude/atoll-notch-status.py"'
-events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"]
+events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"]
 
 hooks = settings.setdefault("hooks", {})
 for event in events:

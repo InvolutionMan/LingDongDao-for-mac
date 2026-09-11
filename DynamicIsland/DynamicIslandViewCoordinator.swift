@@ -115,6 +115,26 @@ class DynamicIslandViewCoordinator: ObservableObject {
     /// keeps the tab bar so Home/Timer/Shelf stay reachable.
     @Published var cliActivityDetailImmersive: Bool = false
 
+    /// Ticks while the pointer rests on the island. The open island watches it
+    /// to follow the pointer across the media divider, so sliding from the
+    /// task's half onto the album art flips the panel without leaving the island.
+    /// A stored `Timer` rather than `Timer.publish`: a publisher built inside a
+    /// view is recreated on every render and never gets to fire.
+    @Published var hoverTick: Int = 0
+    private var hoverTickTimer: Timer?
+
+    func startHoverTick() {
+        guard hoverTickTimer == nil else { return }
+        hoverTickTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.hoverTick &+= 1 }
+        }
+    }
+
+    func stopHoverTick() {
+        hoverTickTimer?.invalidate()
+        hoverTickTimer = nil
+    }
+
     /// Where the media divider sits inside the island window (x, in the
     /// window's own coordinates), reported by `MusicCornerBadge`. The hover split
     /// uses it: left of the divider belongs to the running task, right of it —

@@ -58,6 +58,12 @@ struct ContentView: View {
     /// compared against the frontmost app's menus. Only the *size* is read --
     /// the offset that follows does not change it, so there is no feedback.
     @State private var closedContentWidth: CGFloat = 0
+
+    /// True while the open island was opened by hovering with a CLI agent
+    /// running: the pointer's side of the media divider then keeps deciding
+    /// whether the island shows that agent's detail or the home page.
+    @State private var hoverSplitActive: Bool = false
+
     @ObservedObject var capsLockManager = CapsLockManager.shared
     @ObservedObject var extensionLiveActivityManager = ExtensionLiveActivityManager.shared
     @ObservedObject var extensionNotchExperienceManager = ExtensionNotchExperienceManager.shared
@@ -1356,6 +1362,29 @@ struct ContentView: View {
               }
               .zIndex(1)
               .allowsHitTesting(vm.notchState == .open)
+              // Sliding across the media divider inside an open island flips
+              // between the agent's detail and the home page, so the side that
+              // was hovered first does not lock the island into one of them.
+              .onChange(of: vm.notchState) { _, state in
+                  if state == .closed { hoverSplitActive = false }
+              }
+              .onReceive(coordinator.$hoverTick) { _ in
+                  guard hoverSplitActive,
+                        vm.notchState == .open,
+                        shouldShowCLIActivityDetailOnHover else { return }
+                  let wantsDetail = currentHoverSide() == .left
+                  guard wantsDetail != coordinator.showsCLIActivityDetail else { return }
+                  CLIActivityDebugLog.record(
+                      "hover split switched: side=\(wantsDetail ? "left" : "right") split=\(coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "mid")"
+                  )
+                  withAnimation(.smooth(duration: 0.22)) {
+                      coordinator.cliActivityDetailImmersive = wantsDetail
+                      coordinator.showsCLIActivityDetail = wantsDetail
+                      if !wantsDetail {
+                          coordinator.currentView = .home
+                      }
+                  }
+              }
               .blur(radius: abs(gestureProgress) > 0.3 ? min(abs(gestureProgress), 8) : 0)
               .opacity(abs(gestureProgress) > 0.3 ? min(abs(gestureProgress * 2), 0.8) : 1)
               .animation(.smooth(duration: 0.3), value: coordinator.currentView)
@@ -2420,12 +2449,16 @@ struct ContentView: View {
         guard let window = NSApplication.shared.windows.first(where: { $0 is DynamicIslandWindow }) else {
             return .right
         }
-        // Pointer in the window's own coordinates (top-left origin), the same
-        // space the badge reports its divider in.
-        let mouse = NSEvent.mouseLocation
-        let pointerX = mouse.x - window.frame.minX
-        let splitX = coordinator.mediaDividerX ?? (window.frame.width / 2)
-        return pointerX < splitX ? .left : .right
+        return isLeftOfMediaSplit(windowX: NSEvent.mouseLocation.x - window.frame.minX) ? .left : .right
+    }
+
+    /// `windowX` is in the island window's own coordinates (top-left origin) —
+    /// the same space the badge reports its divider in, and the space SwiftUI
+    /// hands to `onContinuousHover(coordinateSpace: .global)`.
+    private func isLeftOfMediaSplit(windowX: CGFloat) -> Bool {
+        let windowWidth = NSApplication.shared.windows
+            .first { $0 is DynamicIslandWindow }?.frame.width ?? vm.closedNotchSize.width
+        return windowX < (coordinator.mediaDividerX ?? windowWidth / 2)
     }
 
     /// True when the closed notch is currently showing a CLI live activity, so
@@ -2453,6 +2486,7 @@ struct ContentView: View {
             }
             removeStickyTerminalClickMonitor()
         } else {
+            coordinator.stopHoverTick()
             stopHoverClickMonitor()
             if isHoveringClosedMusicWaveformControl {
                 withAnimation(.smooth(duration: 0.16)) {
@@ -2462,6 +2496,7 @@ struct ContentView: View {
         }
 
         if hovering {
+            coordinator.startHoverTick()
             withAnimation(.bouncy.speed(1.2)) {
                 isHovering = true
             }
@@ -2502,14 +2537,27 @@ struct ContentView: View {
                     // live detail panel (tool, tasks, cache hit, tokens); the
                     // other half opens the ordinary home page. The panel always
                     // owns the whole island — no tab bar over it.
+                    let cliActive = self.shouldShowCLIActivityDetailOnHover
                     let side = self.currentHoverSide()
-                    let wantsDetail = self.shouldShowCLIActivityDetailOnHover && side == .left
+                    let wantsDetail = cliActive && side == .left
+                    // While this island stays open, the pointer's side keeps
+                    // deciding what it shows — see the continuous-hover watcher.
+                    self.hoverSplitActive = cliActive
+                    if cliActive, side == .right {
+                        // The media side is about playback: land on Home.
+                        withAnimation(.smooth) {
+                            self.coordinator.currentView = .home
+                        }
+                    }
+                    // Whatever opened it, the flags are set last: a running CLI
+                    // makes `openNotch()` arm its detail panel, and that must not
+                    // override the side this hover picked.
+                    self.openNotch()
                     self.coordinator.cliActivityDetailImmersive = wantsDetail
                     self.coordinator.showsCLIActivityDetail = wantsDetail
                     CLIActivityDebugLog.record(
                         "hover-open firing: side=\(side == .left ? "left" : "right") split=\(self.coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "mid") cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
                     )
-                    self.openNotch()
                 }
             }
         } else {
@@ -2533,6 +2581,10 @@ struct ContentView: View {
         }
 
         if vm.notchState == .open && !shouldPreventAutoClose() {
+            // The island is going away, so the side-split stops with it. An
+            // island that stays open (sticky terminal, gesture) keeps it: the
+            // pointer may simply have left the pill for the open panel.
+            hoverSplitActive = false
             vm.close()
         } else if vm.notchState == .open
                     && Defaults[.terminalStickyMode]

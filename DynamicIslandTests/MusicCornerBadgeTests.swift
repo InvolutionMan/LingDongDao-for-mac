@@ -100,6 +100,70 @@ final class MusicCornerBadgeTests: XCTestCase {
         XCTAssertGreaterThan(markGap + mark + gap, mark, "the divider sits after the mark, not on it")
     }
 
+    /// Rendered proof of both halves of the rule: a finished task keeps the
+    /// divider clear of its completion mark, while a running one still gets the
+    /// same 8pt gap to the counter — the slack is compensated, the mark is not.
+    @MainActor
+    func testRenderedRowKeepsTheGapRight() throws {
+        let scale: CGFloat = 4
+        let column: CGFloat = 56
+        let digits: CGFloat = 39          // what the counter actually measures
+        let markSize: CGFloat = 16
+        let markGap: CGFloat = 3
+        let diameter: CGFloat = 22
+        let artwork = Self.solidArtwork(size: 32)
+
+        func renderedGap(hasCompletionMark: Bool) throws -> CGFloat {
+            let leading = MusicCornerBadge.trailingGap(
+                columnWidth: column,
+                measuredTextWidth: digits,
+                hasCompletionMark: hasCompletionMark
+            )
+            let row = HStack(spacing: 0) {
+                Color.green.frame(width: digits, height: 10)
+                Color.clear.frame(width: column - digits, height: 10)
+                if hasCompletionMark {
+                    Color.blue.frame(width: markSize, height: markSize).padding(.leading, markGap)
+                }
+                MusicCornerBadge(artwork: artwork, diameter: diameter, leadingGap: leading)
+            }
+            .background(Color.black)
+
+            let bitmap = try Self.render(row, scale: scale)
+            // Last column of the content before the badge: the blue mark, or the
+            // green digits when the task is still running.
+            var contentRight = -1
+            var dividerX = -1
+            for x in 0..<bitmap.pixelsWide {
+                var painted = 0, lit = 0, blue = 0
+                for y in 0..<bitmap.pixelsHigh {
+                    guard let c = bitmap.colorAt(x: x, y: y) else { continue }
+                    if c.brightnessComponent > 0.06 { lit += 1 }
+                    if c.blueComponent > 0.5 && c.redComponent < 0.4 { blue += 1 }
+                    if c.greenComponent > 0.5 && c.blueComponent < 0.4 { painted += 1 }
+                }
+                if blue > 4 || painted > 4 { contentRight = x }
+                if dividerX < 0, contentRight > 0, x > contentRight, lit > 4, blue <= 4 { dividerX = x }
+            }
+            XCTAssertGreaterThan(contentRight, 0, "the row's content was not drawn")
+            XCTAssertGreaterThan(dividerX, 0, "the divider was not drawn")
+            return CGFloat(dividerX - contentRight - 1) / scale
+        }
+
+        // Finished task: the divider sits clear of the checkmark / failure mark.
+        let afterMark = try renderedGap(hasCompletionMark: true)
+        XCTAssertGreaterThanOrEqual(afterMark, 6, "the divider must clear the mark (got \(afterMark)pt)")
+
+        // Running task: no mark, so the badge is pulled back into the counter
+        // column's empty slack — the divider lands closer than the column's edge.
+        let afterDigits = try renderedGap(hasCompletionMark: false)
+        XCTAssertLessThan(
+            afterDigits, 8,
+            "without a mark the badge should be pulled back into the slack (got \(afterDigits)pt)"
+        )
+        XCTAssertGreaterThan(afterDigits, 0, "and must not touch the digits (got \(afterDigits)pt)")
+    }
+
     // MARK: - The record turns
 
     func testSpinAngleTurnsOnceEveryEightSeconds() {

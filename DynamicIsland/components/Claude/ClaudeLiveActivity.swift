@@ -81,7 +81,7 @@ struct ClaudeLiveActivity: View {
             + (hasModel ? 14 + modelFrameWidth + 8 : 0)
             + (thinkingTextWidth > 0 ? 6 + thinkingTextWidth : 0)
             + (hasHitRate ? 8 + hitRateWidth : 0)
-            + 4 + elapsedTextWidth
+            + 8 + elapsedTextWidth
             + (isCompleted ? 3 + checkmarkSize : 0)
             + 8
     }
@@ -131,7 +131,7 @@ struct ClaudeLiveActivity: View {
                         Text(CLIUsage.percentText(hit))
                             .font(hitRateFont)
                             .foregroundStyle(.white.opacity(0.8))
-                            .frame(width: hitRateWidth, alignment: .trailing)
+                            .frame(width: hitRateWidth, alignment: .center)
                             .padding(.leading, 8)
                             .contentTransition(.numericText())
                             .help("Cache hit rate")
@@ -147,7 +147,7 @@ struct ClaudeLiveActivity: View {
                                 .frame(width: elapsedTextWidth, alignment: .leading)
                                 .contentTransition(.numericText())
                         }
-                        .padding(.leading, 4)
+                        .padding(.leading, 8)
                         .transition(.opacity)
                     case .completed(let at, let startedAt):
                         if let startedAt {
@@ -155,7 +155,7 @@ struct ClaudeLiveActivity: View {
                                 .font(elapsedFont)
                                 .foregroundStyle(.white)
                                 .frame(width: elapsedTextWidth, alignment: .leading)
-                                .padding(.leading, 4)
+                                .padding(.leading, 8)
                                 .transition(.opacity)
                         }
 

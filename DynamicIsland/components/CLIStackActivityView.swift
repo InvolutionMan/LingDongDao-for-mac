@@ -90,7 +90,7 @@ struct CLIStackActivityView: View {
             + 14 + modelFrameWidth + 8
             + 6 + thinkingColumnWidth
             + (showsHitRateColumn ? 8 + hitRateColumnWidth : 0)
-            + 4 + elapsedTextWidth
+            + 8 + elapsedTextWidth
             + 3 + checkmarkSize
             + 8
     }
@@ -259,7 +259,7 @@ struct CLIStackActivityView: View {
                 showCheck: piIsCompleted,
                 checkProgress: piCheckProgress
             )
-            .padding(.leading, 4)
+            .padding(.leading, 8)
         }
         .frame(height: rowHeight, alignment: .center)
     }
@@ -295,7 +295,7 @@ struct CLIStackActivityView: View {
                 showCheck: dshIsCompleted,
                 checkProgress: dshCheckProgress
             )
-            .padding(.leading, 4)
+            .padding(.leading, 8)
         }
         .frame(height: rowHeight, alignment: .center)
     }
@@ -326,7 +326,7 @@ struct CLIStackActivityView: View {
                 showCheck: codexIsCompleted,
                 checkProgress: codexCheckProgress
             )
-            .padding(.leading, 4)
+            .padding(.leading, 8)
         }
         .frame(height: rowHeight, alignment: .center)
     }
@@ -357,7 +357,7 @@ struct CLIStackActivityView: View {
                 showCheck: claudeIsCompleted,
                 checkProgress: claudeCheckProgress
             )
-            .padding(.leading, 4)
+            .padding(.leading, 8)
         }
         .frame(height: rowHeight, alignment: .center)
     }
@@ -451,7 +451,10 @@ struct CLIStackActivityView: View {
                 }
             }
             .font(.system(size: 13, weight: .semibold, design: .monospaced))
-            .frame(width: hitRateColumnWidth, alignment: .trailing)
+            // Centred, not trailing: the column is wider than most readouts, and
+            // trailing alignment dumped that slack on the left, making the gap to
+            // the thinking level look wider than the gap to the timer.
+            .frame(width: hitRateColumnWidth, alignment: .center)
             .padding(.leading, 8)
         }
     }

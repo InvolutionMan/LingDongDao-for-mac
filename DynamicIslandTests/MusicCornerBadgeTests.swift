@@ -59,6 +59,112 @@ final class MusicCornerBadgeTests: XCTestCase {
         XCTAssertEqual(MusicCornerBadge.width(diameter: 22, leadingGap: -9), -9 + 1 + 8 + 22, accuracy: 0.001)
     }
 
+    // MARK: - The record turns
+
+    func testSpinAngleTurnsOnceEveryEightSeconds() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base, since: base), 0, accuracy: 0.001)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base.addingTimeInterval(2), since: base), 90, accuracy: 0.001)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base.addingTimeInterval(6), since: base), 270, accuracy: 0.001)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base.addingTimeInterval(8), since: base), 0, accuracy: 0.001)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base.addingTimeInterval(9), since: base), 45, accuracy: 0.001)
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: base.addingTimeInterval(-5), since: base), 0, "never negative")
+    }
+
+    /// A hovering pointer shifts the origin instead of the angle, so the record
+    /// carries on from where it stopped.
+    func testPauseKeepsTheAngleInsteadOfJumpingAhead() {
+        let base = Date(timeIntervalSince1970: 2_000_000)
+        let stoppedAt = base.addingTimeInterval(3)          // 135°
+        let resumedAt = stoppedAt.addingTimeInterval(5)     // hovered five seconds
+        let shiftedBase = base.addingTimeInterval(5)        // what the view does on resume
+
+        XCTAssertEqual(MusicCornerBadge.spinAngle(at: stoppedAt, since: base), 135, accuracy: 0.001)
+        XCTAssertEqual(
+            MusicCornerBadge.spinAngle(at: resumedAt, since: shiftedBase), 135, accuracy: 0.001,
+            "resuming must not skip the paused stretch"
+        )
+        XCTAssertEqual(
+            MusicCornerBadge.spinAngle(at: resumedAt.addingTimeInterval(2), since: shiftedBase), 225, accuracy: 0.001
+        )
+    }
+
+    /// Rotating the artwork must not open a gap at the rim: the drawing is
+    /// larger than the circle for exactly that reason.
+    @MainActor
+    func testRotatedArtworkStillCoversTheWholeCircle() throws {
+        let scale: CGFloat = 4
+        let diameter: CGFloat = 22
+        let bitmap = try Self.render(
+            SpinningAlbumArt(artwork: Self.halfAndHalfArtwork(size: 64), diameter: diameter, angle: 45)
+                .frame(width: diameter, height: diameter)
+                .clipShape(Circle())
+                .background(Color.black),
+            scale: scale
+        )
+
+        // Sample a ring just inside the rim, every 15°: all of it must be painted.
+        let centre = Double(bitmap.pixelsWide) / 2
+        let radius = Double(diameter) / 2 * Double(scale) - 2
+        for step in 0..<24 {
+            let angle = Double(step) * 15 * .pi / 180
+            let x = Int(centre + radius * cos(angle))
+            let y = Int(centre + radius * sin(angle))
+            let colour = try XCTUnwrap(bitmap.colorAt(x: x, y: y))
+            XCTAssertGreaterThan(
+                colour.brightnessComponent, 0.2,
+                "rim uncovered at \(step * 15)° — the rotating square is too small for the circle"
+            )
+        }
+    }
+
+    /// Rotation is really applied to the picture, not just to the frame.
+    @MainActor
+    func testRotationChangesWhatIsDrawn() throws {
+        let diameter: CGFloat = 22
+        let artwork = Self.halfAndHalfArtwork(size: 64)
+        let straight = try Self.render(
+            SpinningAlbumArt(artwork: artwork, diameter: diameter, angle: 0).frame(width: diameter, height: diameter),
+            scale: 2
+        )
+        let turned = try Self.render(
+            SpinningAlbumArt(artwork: artwork, diameter: diameter, angle: 45).frame(width: diameter, height: diameter),
+            scale: 2
+        )
+
+        var differences = 0
+        for x in 0..<min(straight.pixelsWide, turned.pixelsWide) {
+            for y in 0..<min(straight.pixelsHigh, turned.pixelsHigh) {
+                let a = try XCTUnwrap(straight.colorAt(x: x, y: y))
+                let b = try XCTUnwrap(turned.colorAt(x: x, y: y))
+                // White and green differ in red, not in brightness.
+                if abs(a.redComponent - b.redComponent) > 0.5 { differences += 1 }
+            }
+        }
+        XCTAssertGreaterThan(differences, 50, "a 45° turn should repaint a good part of the artwork")
+    }
+
+    @MainActor
+    private static func render<V: View>(_ view: V, scale: CGFloat) throws -> NSBitmapImageRep {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = scale
+        let image = try XCTUnwrap(renderer.cgImage)
+        return try XCTUnwrap(NSBitmapImageRep(cgImage: image))
+    }
+
+    /// White over green: both halves are bright (so an uncovered rim is
+    /// unmistakable) yet a turn repaints the picture.
+    private static func halfAndHalfArtwork(size: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(x: 0, y: size / 2, width: size, height: size / 2).fill()
+        NSColor.green.setFill()
+        NSRect(x: 0, y: 0, width: size, height: size / 2).fill()
+        image.unlockFocus()
+        return image
+    }
+
     /// Renders the badge and checks the geometry the eye would check: a hairline
     /// divider, an 8pt gap, then a clipped circle of the requested diameter.
     @MainActor

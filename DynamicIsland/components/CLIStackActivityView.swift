@@ -162,7 +162,12 @@ struct CLIStackActivityView: View {
 
             // One circle for the whole stack, centred against every row.
             if let artwork = musicBadgeArtwork {
-                MusicCornerBadge(artwork: artwork, diameter: musicBadgeDiameter, leadingGap: 0)
+                MusicCornerBadge(
+                    artwork: artwork,
+                    diameter: musicBadgeDiameter,
+                    leadingGap: 0,
+                    isPaused: isHovering || !musicManager.isPlaying
+                )
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }

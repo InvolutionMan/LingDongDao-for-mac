@@ -232,7 +232,12 @@ struct CodexLiveActivity: View {
                     }
 
                     if let artwork = musicBadgeArtwork {
-                        MusicCornerBadge(artwork: artwork, diameter: musicBadgeDiameter, leadingGap: musicBadgeLeadingGap)
+                        MusicCornerBadge(
+                            artwork: artwork,
+                            diameter: musicBadgeDiameter,
+                            leadingGap: musicBadgeLeadingGap,
+                            isPaused: isHovering || !musicManager.isPlaying
+                        )
                             .transition(.opacity.combined(with: .scale(scale: 0.85)))
                     }
                 }

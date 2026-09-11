@@ -409,6 +409,24 @@ final class DshSessionMonitorTests: XCTestCase {
         XCTAssertNil(DshSessionTail.sample(fromTail: "not json"))
     }
 
+    // MARK: - Cache hit formatting
+
+    func testCacheHitPercentKeepsTwoDecimals() {
+        XCTAssertEqual(CLIUsage.percentText(1.0), "100.00%")
+        XCTAssertEqual(CLIUsage.percentText(0.9997), "99.97%")
+        XCTAssertEqual(CLIUsage.percentText(0.9888), "98.88%")
+        XCTAssertEqual(CLIUsage.percentText(0.6871226), "68.71%")
+        XCTAssertEqual(CLIUsage.percentText(0.5), "50.00%")
+        XCTAssertEqual(CLIUsage.percentText(0), "0.00%")
+    }
+
+    /// The pill reserves a column for the readout; two decimals have to fit.
+    func testCacheHitColumnFitsTwoDecimals() {
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
+        let widest = NSAttributedString(string: "100.00%", attributes: [.font: font]).size().width
+        XCTAssertGreaterThanOrEqual(CLIUsage.percentTextWidth, widest)
+    }
+
     // MARK: - Model + thinking level
 
     func testRequestHeaderNamesTheModel() {

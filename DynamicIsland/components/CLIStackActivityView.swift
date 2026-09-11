@@ -45,7 +45,8 @@ struct CLIStackActivityView: View {
     private var ringStrokeWidth: CGFloat { 2.5 }
     private var modelFrameWidth: CGFloat { 240 }
     private var elapsedTextWidth: CGFloat { 56 }
-    private var hitRateColumnWidth: CGFloat { 46 }
+    /// Fits `100.00%`: the shared readout is precise to two decimals.
+    private var hitRateColumnWidth: CGFloat { CLIUsage.percentTextWidth }
     /// Every row reserves the column so the elapsed counters stay aligned; the
     /// column appears as soon as any of the three agents reports usage.
     private var showsHitRateColumn: Bool {
@@ -78,7 +79,8 @@ struct CLIStackActivityView: View {
     /// Widest thinking-degree column so every row aligns its columns.
     private var thinkingColumnWidth: CGFloat {
         max(thinkingWidth(piMonitor.thinkingLevel),
-            max(thinkingWidth(codexMonitor.thinkingLevel), thinkingWidth(claudeMonitor.thinkingLevel)))
+            max(thinkingWidth(codexMonitor.thinkingLevel),
+                max(thinkingWidth(claudeMonitor.thinkingLevel), thinkingWidth(dshMonitor.thinkingLevel))))
     }
 
     /// One activity's expanded length; the stacked island keeps this same

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Token usage of a CLI agent's most recent model call.
@@ -46,8 +47,23 @@ struct CLIUsage: Equatable {
             && outputTokens == nil && reportedTotalTokens == nil
     }
 
-    /// `0.9888` → `"99%"` — one shared formatting rule for pill and panel.
+    /// `0.9888` → `"98.88%"` — one shared formatting rule for pill and panel.
+    /// Two decimals on purpose: a cached prompt is usually a large share of the
+    /// prompt, so whole percentages hide the difference between e.g. 99% and
+    /// 99.97%.
     static func percentText(_ rate: Double) -> String {
-        "\(Int((rate * 100).rounded()))%"
+        String(format: "%.2f%%", rate * 100)
+    }
+}
+
+extension CLIUsage {
+    /// Width of the widest readout `percentText` can produce (`100.00%`) in the
+    /// 13pt semibold monospaced font the pills use, so the decimals are never
+    /// clipped. Two points of slack absorb the difference between AppKit's and
+    /// SwiftUI's monospaced faces.
+    static var percentTextWidth: CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
+        let width = NSAttributedString(string: "100.00%", attributes: [.font: font]).size().width
+        return CGFloat(ceil(width)) + 2
     }
 }

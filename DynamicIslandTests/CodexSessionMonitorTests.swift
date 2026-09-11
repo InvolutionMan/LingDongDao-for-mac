@@ -241,7 +241,7 @@ final class CodexSessionMonitorTests: XCTestCase {
         XCTAssertEqual(usage?.reportedTotalTokens, 52110)
         XCTAssertEqual(usage?.totalTokens, 52110)
         XCTAssertEqual(usage?.cacheHitRate ?? 0, 35584.0 / 51787.0, accuracy: 0.0001)
-        XCTAssertEqual(CLIUsage.percentText(usage?.cacheHitRate ?? 0), "69%")
+        XCTAssertEqual(CLIUsage.percentText(usage?.cacheHitRate ?? 0), "68.71%")
     }
 
     func testUsagePrefersLatestTokenCount() {

@@ -354,7 +354,7 @@ final class PiSessionMonitor: ObservableObject {
         // pi extension's tool/task data actually reached the app.
         if sample.detail != previousDetail {
             CLIActivityDebugLog.record(
-                "pi detail: tasks=\(sample.detail?.tasks.count ?? 0) running=\(sample.detail?.tasks.filter { $0.state == .running }.count ?? 0) tool=\(sample.detail?.toolName ?? "-") error=\(sample.detail?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.detail?.toolFailed == true ? 1 : 0) hit=\(sample.detail?.cacheHitRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "-")"
+                "pi detail: tasks=\(sample.detail?.tasks.count ?? 0) running=\(sample.detail?.tasks.filter { $0.state == .running }.count ?? 0) tool=\(sample.detail?.toolName ?? "-") error=\(sample.detail?.errorMessage != nil ? 1 : 0) toolFailed=\(sample.detail?.toolFailed == true ? 1 : 0) hit=\(sample.detail?.cacheHitRate.map(CLIUsage.percentText) ?? "-")"
             )
         }
 

@@ -149,7 +149,7 @@ final class ClaudeSessionMonitorTests: XCTestCase {
         XCTAssertEqual(usage?.totalTokens, 20474 + 7808 + 1000 + 276)
         // Claude's input_tokens excludes the cached parts, so the prompt is the sum.
         XCTAssertEqual(usage?.cacheHitRate ?? 0, 7808.0 / (20474 + 7808 + 1000), accuracy: 0.0001)
-        XCTAssertEqual(CLIUsage.percentText(usage?.cacheHitRate ?? 0), "27%")
+        XCTAssertEqual(CLIUsage.percentText(usage?.cacheHitRate ?? 0), "26.66%")
     }
 
     func testUsagePrefersLatestAssistantMessage() {

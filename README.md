@@ -13,14 +13,14 @@
 四个 CLI 各自有图标与配色，收起时一行显示：
 
 ```
-( π )  deepseek-v4.1-flash-expires-on-0910  high   99%   01:42
+( π )  deepseek-v4.1-flash-expires-on-0910  high   99.97%   01:42
   ↑        ↑                                  ↑      ↑      ↑
  图标    模型名（过长自动滚动）           思考程度 命中率  计时
 ```
 
 - **模型名**：超出宽度用跑马灯滚动，不会把灵动岛无限拉长
 - **思考程度**：按等级着色（`off #8E8E93` · `minimal #64D2FF` · `low #5E5CE6` · `medium #BF5AF2` · `high/max #FF9F0A`）
-- **缓存命中率**：`已缓存 prompt token ÷ 全部 prompt token`，统一归一化到百分比
+- **缓存命中率**：`已缓存 prompt token ÷ 全部 prompt token`，统一归一化到百分比，**保留两位小数**（缓存通常占 prompt 的绝大部分，取整会看不出 99% 与 99.97% 的差别）
 - **计时**：运行中向上计时，结束瞬间换成对勾（出错时换成红色警告三角形）
 - 开始/结束都有和系统计时器一致的过渡动画
 
@@ -31,7 +31,7 @@
 ```
 [π] Pi  deepseek-v4.1-…  high  01:42
 Running  [bash]  npm run build  ●          ← 只显示正在执行的一个任务
-Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
+Cache hit 99.97%   Tokens 111K   in / out 12.4K / 830   cached 98K
 ```
 
 - **只显示"正在执行"的那一个任务**，不列已完成 / 待执行的任务

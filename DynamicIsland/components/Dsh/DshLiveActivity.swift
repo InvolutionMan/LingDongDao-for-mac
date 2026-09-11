@@ -62,7 +62,8 @@ struct DshLiveActivity: View {
     private var thinkingFont: Font { .body }
     private var elapsedFont: Font { .system(size: 13, weight: .semibold, design: .monospaced) }
     private var hitRateFont: Font { .system(size: 13, weight: .semibold, design: .monospaced) }
-    private var hitRateWidth: CGFloat { 46 }
+    /// Fits `100.00%`: the shared readout is precise to two decimals.
+    private var hitRateWidth: CGFloat { CLIUsage.percentTextWidth }
     private var hasHitRate: Bool { dshMonitor.detail?.cacheHitRate != nil }
 
     private var thinkingMeasureFont: NSFont { .systemFont(ofSize: 13, weight: .regular) }

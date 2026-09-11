@@ -32,6 +32,27 @@ struct MusicCornerBadge: View {
         leadingGap + 1 + dividerGap + diameter
     }
 
+    /// The usual gap in front of the divider.
+    static let defaultLeadingGap: CGFloat = 8
+
+    /// Gap to use when the badge trails a fixed-width column (the elapsed
+    /// counter) that is wider than the text inside it.
+    ///
+    /// The column's slack is empty space, so the badge is pulled back by exactly
+    /// that much and the divider keeps the same visible gap to the digits
+    /// whatever their length. When a completion mark follows the counter — the
+    /// green checkmark, or the red warning triangle of a failed task — that mark
+    /// already occupies the slack, so pulling back would drop the divider on top
+    /// of it; the badge then keeps the plain gap.
+    static func trailingGap(
+        columnWidth: CGFloat,
+        measuredTextWidth: CGFloat,
+        hasCompletionMark: Bool
+    ) -> CGFloat {
+        guard !hasCompletionMark else { return defaultLeadingGap }
+        return defaultLeadingGap - max(0, columnWidth - measuredTextWidth)
+    }
+
     /// Angle of the record at `date`, measured from `base`. Pure, so it can be
     /// reasoned about (and tested): the view shifts `base` by every hover instead
     /// of letting the angle jump ahead while it was stopped.

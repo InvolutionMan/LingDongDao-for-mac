@@ -130,10 +130,15 @@ struct PiLiveActivity: View {
 
     /// The elapsed counter sits in a fixed-width column that is wider than the
     /// digits, so the badge is pulled back by exactly that slack — the divider
-    /// then keeps the same gap to the counter whatever its length.
+    /// then keeps the same gap to the counter whatever its length. Once the task
+    /// has finished, the checkmark / failure mark takes that space instead and
+    /// the badge must not be pulled back onto it.
     private var musicBadgeLeadingGap: CGFloat {
-        let elapsed = max(0, elapsedTextWidth - measuredElapsedWidth)
-        return 8 - elapsed
+        MusicCornerBadge.trailingGap(
+            columnWidth: elapsedTextWidth,
+            measuredTextWidth: measuredElapsedWidth,
+            hasCompletionMark: isCompleted
+        )
     }
 
     private var measuredElapsedWidth: CGFloat {

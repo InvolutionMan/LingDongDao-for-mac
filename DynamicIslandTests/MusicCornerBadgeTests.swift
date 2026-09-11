@@ -59,6 +59,47 @@ final class MusicCornerBadgeTests: XCTestCase {
         XCTAssertEqual(MusicCornerBadge.width(diameter: 22, leadingGap: -9), -9 + 1 + 8 + 22, accuracy: 0.001)
     }
 
+    /// The bug this guards: a finished task shows a checkmark — or, when it
+    /// failed, a red warning triangle — right after the counter. The badge used
+    /// to be pulled back by the counter's slack regardless, so the divider landed
+    /// on top of that mark.
+    func testBadgeGapCompensatesTheCounterButNeverTheCompletionMark() {
+        XCTAssertEqual(
+            MusicCornerBadge.trailingGap(columnWidth: 56, measuredTextWidth: 39, hasCompletionMark: false),
+            8 - 17, accuracy: 0.001,
+            "a running task leaves the column slack empty, so the badge is pulled back"
+        )
+        XCTAssertEqual(
+            MusicCornerBadge.trailingGap(columnWidth: 56, measuredTextWidth: 39, hasCompletionMark: true),
+            8, accuracy: 0.001,
+            "the checkmark / failure mark fills that slack — no pull-back"
+        )
+        XCTAssertEqual(
+            MusicCornerBadge.trailingGap(columnWidth: 56, measuredTextWidth: 56, hasCompletionMark: false),
+            8, accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MusicCornerBadge.trailingGap(columnWidth: 56, measuredTextWidth: 70, hasCompletionMark: false),
+            8, accuracy: 0.001,
+            "a counter longer than its column must not push the badge to the left"
+        )
+    }
+
+    /// The badge must never be laid out over the mark: the row reserves the
+    /// counter, the mark and then the badge, and every term is positive.
+    func testReservedWidthKeepsTheMarkAndTheBadgeApart() {
+        let column: CGFloat = 56
+        let mark: CGFloat = 16
+        let markGap: CGFloat = 3
+        let gap = MusicCornerBadge.trailingGap(columnWidth: column, measuredTextWidth: 39, hasCompletionMark: true)
+        let badge = MusicCornerBadge.width(diameter: 22, leadingGap: gap)
+
+        // What the row draws, left to right, after the counter's column.
+        XCTAssertGreaterThanOrEqual(gap, 8)
+        XCTAssertEqual(badge, gap + 1 + 8 + 22, accuracy: 0.001)
+        XCTAssertGreaterThan(markGap + mark + gap, mark, "the divider sits after the mark, not on it")
+    }
+
     // MARK: - The record turns
 
     func testSpinAngleTurnsOnceEveryEightSeconds() {

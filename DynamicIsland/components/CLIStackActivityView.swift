@@ -13,6 +13,9 @@ struct CLIStackActivityView: View {
     @ObservedObject var codexMonitor = CodexSessionMonitor.shared
     @ObservedObject var claudeMonitor = ClaudeSessionMonitor.shared
     @ObservedObject var dshMonitor = DshSessionMonitor.shared
+    @ObservedObject private var musicManager = MusicManager.shared
+    @ObservedObject private var coordinator = DynamicIslandViewCoordinator.shared
+    @ObservedObject private var lockScreenManager = LockScreenManager.shared
 
     @State private var isHovering: Bool = false
     @State private var expanded: Bool = false
@@ -92,7 +95,32 @@ struct CLIStackActivityView: View {
             + (showsHitRateColumn ? 8 + hitRateColumnWidth : 0)
             + 8 + elapsedTextWidth
             + 3 + checkmarkSize
+            + musicBadgeWidth
             + 8
+    }
+
+    /// Space the shared media circle needs on the right of every row.
+    private var musicBadgeWidth: CGFloat {
+        guard musicBadgeArtwork != nil else { return 0 }
+        // The rows already end with an 8pt trailing pad, so the badge brings no
+        // leading gap of its own.
+        return MusicCornerBadge.width(diameter: musicBadgeDiameter, leadingGap: 0)
+    }
+
+    private var musicBadgeDiameter: CGFloat { max(15, notchContentHeight - 2) }
+
+    /// The album art of whatever is playing while several CLIs share the island:
+    /// the tasks keep the island, the media becomes one circle on their right.
+    private var musicBadgeArtwork: NSImage? {
+        guard isClosedMusicBadgeEligible(
+            hasActiveMusicSnapshot: musicManager.hasActiveSnapshot,
+            musicLiveActivityEnabled: coordinator.musicLiveActivityEnabled,
+            closedMusicContentEnabled: Defaults[.enableMinimalisticUI] || Defaults[.showStandardMediaControls],
+            hideOnClosed: vm.hideOnClosed,
+            isLocked: lockScreenManager.isLocked,
+            isDeferredAfterUnlock: lockScreenManager.shouldDelayPostUnlockMusicHUD
+        ) else { return nil }
+        return musicManager.albumArt
     }
 
     private var displayWidth: CGFloat {
@@ -112,22 +140,30 @@ struct CLIStackActivityView: View {
     }
 
     var body: some View {
-        VStack(spacing: rowSpacing) {
-            if showsPi {
-                piRow
-                    .frame(width: displayWidth, alignment: .leading)
+        HStack(spacing: 0) {
+            VStack(spacing: rowSpacing) {
+                if showsPi {
+                    piRow
+                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                }
+                if showsCodex {
+                    codexRow
+                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                }
+                if showsClaude {
+                    claudeRow
+                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                }
+                if showsDsh {
+                    dshRow
+                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                }
             }
-            if showsCodex {
-                codexRow
-                    .frame(width: displayWidth, alignment: .leading)
-            }
-            if showsClaude {
-                claudeRow
-                    .frame(width: displayWidth, alignment: .leading)
-            }
-            if showsDsh {
-                dshRow
-                    .frame(width: displayWidth, alignment: .leading)
+
+            // One circle for the whole stack, centred against every row.
+            if let artwork = musicBadgeArtwork {
+                MusicCornerBadge(artwork: artwork, diameter: musicBadgeDiameter, leadingGap: 0)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
         .padding(.vertical, islandVerticalPadding)

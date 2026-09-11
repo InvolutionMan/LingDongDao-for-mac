@@ -12,6 +12,9 @@ import AppKit
 struct ClaudeLiveActivity: View {
     @EnvironmentObject var vm: DynamicIslandViewModel
     @ObservedObject var claudeMonitor = ClaudeSessionMonitor.shared
+    @ObservedObject private var musicManager = MusicManager.shared
+    @ObservedObject private var coordinator = DynamicIslandViewCoordinator.shared
+    @ObservedObject private var lockScreenManager = LockScreenManager.shared
     @State private var isHovering: Bool = false
     @State private var expanded: Bool = false
     @State private var spinning: Bool = false
@@ -83,12 +86,61 @@ struct ClaudeLiveActivity: View {
             + (hasHitRate ? 8 + hitRateWidth : 0)
             + 8 + elapsedTextWidth
             + (isCompleted ? 3 + checkmarkSize : 0)
+            + musicBadgeWidth
             + 8
     }
 
     private var displayWidth: CGFloat {
         let base = vm.closedNotchSize.width + (isHovering ? 8 : 0)
         return expanded ? max(base, fullContentWidth) : base
+    }
+
+
+    // MARK: - Media beside the task
+
+    /// The album art of whatever is playing, when the media island has to share
+    /// the closed notch with this activity: the task keeps the main slot and the
+    /// media shrinks into a circle on its right, like the iPhone's Dynamic
+    /// Island. Nil when nothing is playing.
+    private var musicBadgeArtwork: NSImage? {
+        guard isClosedMusicBadgeEligible(
+            hasActiveMusicSnapshot: musicManager.hasActiveSnapshot,
+            musicLiveActivityEnabled: coordinator.musicLiveActivityEnabled,
+            closedMusicContentEnabled: Defaults[.enableMinimalisticUI] || Defaults[.showStandardMediaControls],
+            hideOnClosed: vm.hideOnClosed,
+            isLocked: lockScreenManager.isLocked,
+            isDeferredAfterUnlock: lockScreenManager.shouldDelayPostUnlockMusicHUD
+        ) else { return nil }
+        return musicManager.albumArt
+    }
+
+    private var musicBadgeDiameter: CGFloat { max(15, notchContentHeight - 2) }
+
+    /// The elapsed counter sits in a fixed-width column that is wider than the
+    /// digits, so the badge is pulled back by exactly that slack — the divider
+    /// then keeps the same gap to the counter whatever its length.
+    private var musicBadgeLeadingGap: CGFloat {
+        let elapsed = max(0, elapsedTextWidth - measuredElapsedWidth)
+        return 8 - elapsed
+    }
+
+    private var measuredElapsedWidth: CGFloat {
+        let text: String
+        switch phase {
+        case .running(let started):
+            text = ClaudeLiveActivity.formatElapsed(Date().timeIntervalSince(started))
+        case .completed(let at, let startedAt):
+            text = startedAt.map { ClaudeLiveActivity.formatElapsed(at.timeIntervalSince($0)) } ?? ""
+        case .idle:
+            text = ""
+        }
+        guard !text.isEmpty else { return elapsedTextWidth }
+        return measureTextWidth(text, font: .monospacedSystemFont(ofSize: 13, weight: .semibold))
+    }
+
+    private var musicBadgeWidth: CGFloat {
+        guard musicBadgeArtwork != nil else { return 0 }
+        return MusicCornerBadge.width(diameter: musicBadgeDiameter, leadingGap: musicBadgeLeadingGap)
     }
 
     var body: some View {
@@ -171,6 +223,11 @@ struct ClaudeLiveActivity: View {
                         .transition(.scale(scale: 0.5).combined(with: .opacity))
                     case .idle:
                         EmptyView()
+                    }
+
+                    if let artwork = musicBadgeArtwork {
+                        MusicCornerBadge(artwork: artwork, diameter: musicBadgeDiameter, leadingGap: musicBadgeLeadingGap)
+                            .transition(.opacity.combined(with: .scale(scale: 0.85)))
                     }
                 }
                 .frame(height: notchContentHeight, alignment: .center)

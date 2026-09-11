@@ -14,7 +14,8 @@ import SwiftUI
 /// Records used:
 ///   turn/start · turn/end{reason}      → busy, and whether the turn failed
 ///   tool/call · tool/result{isError}   → the running tool, the turn's tasks
-///   model/selection                    → model + reasoning effort
+///   request/header{config}             → model + reasoning effort (per request)
+///   model/selection                    → model + reasoning effort (on a switch)
 ///   assistant/message{usage}           → tokens and cache hit rate
 ///   llm/retry{failure}                 → provider failures worth surfacing
 ///   todo/write                         → the plan, when there is one
@@ -24,6 +25,10 @@ enum DshSessionTail {
         var busy: Bool
         var model: String?
         var thinkingLevel: String?
+        /// Whether the slice contained a record naming the model at all. Both
+        /// such records are rare, so `nil` model usually means "it is further
+        /// back", which the caller answers with its own memory + a deep scan.
+        var sawModelInfo: Bool
         var detail: PiLiveDetail?
     }
 
@@ -91,6 +96,51 @@ enum DshSessionTail {
         return nil
     }
 
+    // MARK: - Model + thinking level
+
+    /// DSH names the active model in two records: `model/selection` (written when
+    /// the model or the reasoning effort is switched) and `request/header`, the
+    /// config of every LLM request. The latter is the one that keeps reappearing
+    /// near the tail, but it is still only written once per request — on a long
+    /// turn it sits hundreds of kilobytes behind the end of the file.
+    ///
+    /// Returns nil for any record that does not name a model.
+    static func modelInfo(from record: [String: Any]) -> (model: String, effort: String?)? {
+        switch record["type"] as? String {
+        case "model/selection":
+            let data = payload(record)
+            guard let model = data["model"] as? String, !model.isEmpty else { return nil }
+            return (model, data["reasoningEffort"] as? String)
+        case "request/header":
+            let header = payload(record)["header"] as? [String: Any]
+            let config = header?["config"] as? [String: Any]
+            guard let model = config?["model"] as? String, !model.isEmpty else { return nil }
+            return (model, config?["reasoningEffort"] as? String)
+        default:
+            return nil
+        }
+    }
+
+    /// Same, for a single JSONL line (used when scanning much further back).
+    static func modelInfo(fromLine line: String) -> (model: String, effort: String?)? {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return modelInfo(from: object)
+    }
+
+    /// The newest model record in a whole block of JSONL, e.g. a deep scan
+    /// window: later records win, and an effort-less record keeps the effort
+    /// reported before it.
+    static func newestModelInfo(in text: String) -> (model: String, effort: String?)? {
+        var found: (model: String, effort: String?)?
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains("\"model/selection\"") || line.contains("\"request/header\"") else { continue }
+            guard let info = modelInfo(fromLine: String(line)) else { continue }
+            found = (info.model, info.effort ?? found?.effort)
+        }
+        return found
+    }
+
     private static func usage(from object: [String: Any]) -> CLIUsage? {
         let input = (object["inputTokens"] as? NSNumber)?.intValue
         let output = (object["outputTokens"] as? NSNumber)?.intValue
@@ -139,11 +189,18 @@ enum DshSessionTail {
         let current = records[startIndex...]
         var endReason: String?
         var failureMessage: String?
-        var model: String?
-        var effort: String?
         var latestUsage: CLIUsage?
         var calls: [ToolCall] = []
         var pendingTodos: String?
+
+        // The model is *not* part of the turn window: `model/selection` is
+        // written when it is switched and `request/header` once per request, so
+        // on the turn being watched it is usually missing. Scan the whole slice
+        // instead, newest record wins.
+        var modelInfo: (model: String, effort: String?)?
+        for record in records {
+            if let info = DshSessionTail.modelInfo(from: record) { modelInfo = info }
+        }
 
         for record in current {
             let type = record["type"] as? String
@@ -184,8 +241,8 @@ enum DshSessionTail {
                     calls[index].failed = isError
                 }
             case "model/selection":
-                model = data["model"] as? String
-                effort = data["reasoningEffort"] as? String
+                // Parsed above, across the whole slice.
+                continue
             case "assistant/message":
                 if let raw = data["usage"] as? [String: Any], let parsed = usage(from: raw) {
                     latestUsage = parsed
@@ -256,10 +313,75 @@ enum DshSessionTail {
         let hasDetail = !detail.isEmpty
         return Sample(
             busy: isBusy,
-            model: model,
-            thinkingLevel: effort,
+            model: modelInfo?.model,
+            thinkingLevel: modelInfo?.effort,
+            sawModelInfo: modelInfo != nil,
             detail: hasDetail ? detail : nil
         )
+    }
+}
+
+/// The model and thinking level of the session file currently being watched.
+///
+/// Both records that carry them are rare, so most polls miss them; the value is
+/// therefore remembered per file, and a file seen for the first time is deep
+/// scanned once. The class is tiny and lockable on purpose: polling happens on a
+/// utility queue, not on the main actor.
+final class DshModelMemory {
+    static let shared = DshModelMemory()
+
+    struct Entry {
+        var model: String?
+        var thinkingLevel: String?
+    }
+
+    private let lock = NSLock()
+    private var file: String?
+    private var model: String?
+    private var thinkingLevel: String?
+    private var scanned: Set<String> = []
+
+    /// Last known values, but only for the same file — a new session must not
+    /// inherit the previous one's model.
+    func cached(for file: String) -> Entry? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard self.file == file else { return nil }
+        return Entry(model: model, thinkingLevel: thinkingLevel)
+    }
+
+    /// Remembers whatever the poll resolved. Nil values keep the previous answer
+    /// for the same file, so a tail without a model record does not blank it.
+    func store(file: String, model: String?, thinkingLevel: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        if self.file != file {
+            self.file = file
+            self.model = nil
+            self.thinkingLevel = nil
+        }
+        if let model, !model.isEmpty { self.model = model }
+        if let thinkingLevel, !thinkingLevel.isEmpty { self.thinkingLevel = thinkingLevel }
+    }
+
+    /// True exactly once per session file: the deep scan is expensive, so a file
+    /// is only ever walked back through once.
+    func claimDeepScan(for file: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !scanned.contains(file) else { return false }
+        if scanned.count > 64 { scanned.removeAll() }
+        scanned.insert(file)
+        return true
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        file = nil
+        model = nil
+        thinkingLevel = nil
+        scanned.removeAll()
     }
 }
 
@@ -275,6 +397,8 @@ final class DshSessionMonitor: ObservableObject {
         var model: String?
         var thinkingLevel: String?
         var detail: PiLiveDetail?
+        /// Where the model came from — `tail`, `memory`, `scan`, `settings`.
+        var source: String?
     }
 
     @Published private(set) var phase: PiActivityPhase = .idle
@@ -321,6 +445,11 @@ final class DshSessionMonitor: ObservableObject {
 
     private func apply(_ sample: DshSessionSample) {
         let previousDetail = detail
+        if sample.model != model || sample.thinkingLevel != thinkingLevel {
+            CLIActivityDebugLog.record(
+                "dsh model: \(sample.model ?? "-") level=\(sample.thinkingLevel ?? "-") via \(sample.source ?? "-")"
+            )
+        }
         model = sample.model
         thinkingLevel = sample.thinkingLevel
         detail = sample.detail
@@ -380,19 +509,69 @@ final class DshSessionMonitor: ObservableObject {
 
     /// DSH must be running, and a session file must be fresh enough to describe
     /// what it is doing right now.
-    nonisolated static func pollOnce(now: Date = Date(), sessionsRoot: URL? = nil) -> DshSessionSample {
+    nonisolated static func pollOnce(
+        now: Date = Date(),
+        sessionsRoot: URL? = nil,
+        memory: DshModelMemory = .shared
+    ) -> DshSessionSample {
+        let empty = DshSessionSample(busy: false, model: nil, thinkingLevel: nil, detail: nil, source: nil)
         guard isDshProcessRunning(),
               let session = newestSessionFile(now: now, root: sessionsRoot),
               let tail = tailText(of: session.url),
               let sample = DshSessionTail.sample(fromTail: tail) else {
-            return DshSessionSample(busy: false, model: nil, thinkingLevel: nil, detail: nil)
+            return empty
         }
+
+        let key = session.url.path
+        var model = sample.model
+        var effort = sample.thinkingLevel
+        var source = sample.sawModelInfo ? "tail" : nil
+        if model == nil {
+            if let cached = memory.cached(for: key) {
+                model = cached.model
+                effort = cached.thinkingLevel
+                source = "memory"
+            } else if memory.claimDeepScan(for: key) {
+                if let deep = deepScanModelInfo(of: session.url) {
+                    model = deep.model
+                    effort = deep.effort
+                    source = "scan"
+                } else if let fallback = defaultModelInfo() {
+                    // Nothing in the session names the model yet (it is written
+                    // with the first request): the configured default is the
+                    // honest answer.
+                    model = fallback.model
+                    effort = fallback.effort
+                    source = "settings"
+                }
+            }
+        }
+        memory.store(file: key, model: model, thinkingLevel: effort)
+
         return DshSessionSample(
             busy: sample.busy,
-            model: sample.model,
-            thinkingLevel: sample.thinkingLevel,
-            detail: sample.detail
+            model: model,
+            thinkingLevel: effort,
+            detail: sample.detail,
+            source: source
         )
+    }
+
+    /// DSH model ids are long and heavily suffixed
+    /// (`deepseek-v4.1-flash-expires-on-0910`); the closed pill only has room for
+    /// the recognisable part. The full id stays in the tooltip and in the
+    /// expanded panel.
+    nonisolated static func shortModelName(_ model: String?) -> String? {
+        guard let model, !model.isEmpty else { return nil }
+        var name = model
+        for prefix in ["deepseek-", "deepseek/", "deepseek:"] where name.hasPrefix(prefix) {
+            name.removeFirst(prefix.count)
+        }
+        if let range = name.range(of: "-expires-on-") { name = String(name[..<range.lowerBound]) }
+        for suffix in ["-preview", "-latest", "-experimental"] where name.hasSuffix(suffix) {
+            name.removeLast(suffix.count)
+        }
+        return name.isEmpty ? model : name
     }
 
     /// `dst` is the launcher; the running app is `node …/bin/dsh --profile …`.
@@ -458,6 +637,124 @@ final class DshSessionMonitor: ObservableObject {
         }
 
         guard let zstd = zstdExecutable() else { return nil }
+
+        // Start as early as possible so the decoded window covers the whole
+        // slice — the last frame alone is only a few KB, which hides the turn
+        // boundary and makes a running turn look idle. Fall back to later
+        // candidates when the earliest one is a false positive.
+        for offset in frameOffsets(in: slice).prefix(24) {
+            let frame = slice.subdata(in: offset..<slice.count)
+            guard !frame.isEmpty, frame.count < 16 * 1024 * 1024 else { continue }
+            if let text = decompress(frame, with: zstd), text.contains("\"type\":") {
+                return text
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Looking further back for the model
+
+    /// `model/selection` is written on a switch and `request/header` once per
+    /// request, so neither is guaranteed to be inside the tail: on a long turn
+    /// the nearest one can sit hundreds of kilobytes — sometimes megabytes —
+    /// behind the end of the file.
+    ///
+    /// This walks back in growing windows until a model record shows up. Windows
+    /// are streamed through `zstd | grep | tail`, so even a 32 MB slice is never
+    /// expanded into memory. Runs at most once per session file.
+    nonisolated private static func deepScanModelInfo(of file: URL) -> (model: String, effort: String?)? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+
+        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size > 0 else { return nil }
+
+        for window in [2 << 20, 8 << 20, 32 << 20] {
+            let length = min(window, size)
+            guard (try? handle.seek(toOffset: UInt64(size - length))) != nil,
+                  let slice = try? handle.read(upToCount: length), !slice.isEmpty else { break }
+            if let info = DshSessionTail.newestModelInfo(in: modelRecordLines(inWindow: slice)) {
+                return info
+            }
+            if size <= window { break }
+        }
+        return nil
+    }
+
+    /// The model-naming lines of a raw slice of the session file. Frames are
+    /// independent, so any run of them decodes; the first candidate that decodes
+    /// to something wins.
+    nonisolated private static func modelRecordLines(inWindow window: Data) -> String {
+        guard let zstd = zstdExecutable() else { return "" }
+        let offsets = frameOffsets(in: window)
+        guard !offsets.isEmpty else { return "" }
+
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atoll-dsh-scan-\(ProcessInfo.processInfo.processIdentifier).zst")
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        for offset in offsets.prefix(24) {
+            let frame = window.subdata(in: offset..<window.count)
+            guard !frame.isEmpty, (try? frame.write(to: temp)) != nil else { continue }
+            let command = "\(shellQuote(zstd.path)) -dc \(shellQuote(temp.path))"
+                + " | /usr/bin/grep -E '\"type\": ?\"(model/selection|request/header)\"'"
+                + " | /usr/bin/tail -n 8"
+            if let text = runShell(command), text.contains("\"type\"") {
+                return text
+            }
+        }
+        return ""
+    }
+
+    /// DSH's configured default (`agent-default-model` in `~/.dsh/settings.yaml`),
+    /// used only when the session itself has not named a model yet.
+    nonisolated private static func defaultModelInfo() -> (model: String, effort: String?)? {
+        let settings = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".dsh/settings.yaml")
+        guard let text = try? String(contentsOf: settings, encoding: .utf8) else { return nil }
+        return defaultModelInfo(settings: text)
+    }
+
+    /// Reads the `agent-default-model` block of a DSH settings file:
+    /// ```yaml
+    /// agent-default-model:
+    ///   provider: deepseek-official
+    ///   model: deepseek-v4.1-flash-expires-on-0910
+    ///   reasoningEffort: max
+    /// ```
+    nonisolated static func defaultModelInfo(settings: String) -> (model: String, effort: String?)? {
+        var inside = false
+        var model: String?
+        var effort: String?
+        for rawLine in settings.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            let indented = rawLine.hasPrefix(" ") || rawLine.hasPrefix("\t")
+            if !indented {
+                if inside { break }  // the block ended
+                inside = line.hasPrefix("agent-default-model:")
+                continue
+            }
+            guard inside, let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[line.startIndex..<colon])
+            let value = String(line[line.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            switch key {
+            case "model": if !value.isEmpty { model = value }
+            case "reasoningEffort", "reasoning-effort", "thinking": if !value.isEmpty { effort = value }
+            default: continue
+            }
+        }
+        guard let model else { return nil }
+        return (model, effort)
+    }
+
+    // MARK: - Process helpers
+
+    /// Offsets of every zstd frame magic inside a slice (false positives are
+    /// filtered by whether the run actually decodes).
+    nonisolated private static func frameOffsets(in slice: Data) -> [Int] {
         let magic = Data([0x28, 0xB5, 0x2F, 0xFD])
         var offsets: [Int] = []
         var searchStart = slice.startIndex
@@ -466,20 +763,26 @@ final class DshSessionMonitor: ObservableObject {
             searchStart = range.upperBound
             if offsets.count > 4096 { break }
         }
+        return offsets
+    }
 
-        // Start as early as possible so the decoded window covers the whole
-        // slice — the last frame alone is only a few KB, which hides the turn
-        // boundary and makes a running turn look idle. Fall back to later
-        // candidates when the earliest one is a false positive.
-        let candidates = offsets.prefix(24)
-        for offset in candidates {
-            let frame = slice.subdata(in: offset..<slice.count)
-            guard !frame.isEmpty, frame.count < 16 * 1024 * 1024 else { continue }
-            if let text = decompress(frame, with: zstd), text.contains("\"type\":") {
-                return text
-            }
-        }
-        return nil
+    nonisolated private static func shellQuote(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Runs a shell pipeline and returns its stdout as text (empty on failure).
+    nonisolated private static func runShell(_ command: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0, !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     nonisolated private static func decompress(_ data: Data, with zstd: URL) -> String? {

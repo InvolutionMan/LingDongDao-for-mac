@@ -277,7 +277,11 @@ struct CLIStackActivityView: View {
             )
             .padding(.leading, ringLeadingInset)
 
-            rowModel(model: dshMonitor.model, color: .white.opacity(0.85))
+            rowModel(
+                model: DshSessionMonitor.shortModelName(dshMonitor.model),
+                color: .white.opacity(0.85),
+                help: dshMonitor.model
+            )
                 .padding(.leading, 14)
 
             rowThinking(level: dshMonitor.thinkingLevel, color: piThinkingColor(dshMonitor.thinkingLevel))
@@ -407,7 +411,7 @@ struct CLIStackActivityView: View {
     }
 
     @ViewBuilder
-    private func rowModel(model: String?, color: Color) -> some View {
+    private func rowModel(model: String?, color: Color, help: String? = nil) -> some View {
         if let model {
             MarqueeText(
                 .constant(model),
@@ -417,7 +421,7 @@ struct CLIStackActivityView: View {
             )
             .frame(width: modelFrameWidth, alignment: .leading)
             .clipped()
-            .help(model)
+            .help(help ?? model)
         }
     }
 

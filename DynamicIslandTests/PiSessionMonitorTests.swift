@@ -310,6 +310,14 @@ final class DshSessionMonitorTests: XCTestCase {
         ])
     }
 
+    /// DSH writes the config of every LLM request; the model and the reasoning
+    /// effort live in `header.config`, not at the top level.
+    private func requestHeader(model: String, effort: String?) -> String {
+        var config: [String: Any] = ["provider": "deepseek-official", "model": model, "maxTokens": 256_000]
+        if let effort { config["reasoningEffort"] = effort }
+        return line("request/header", ["header": ["config": config, "system": "You are an AI agent…"]])
+    }
+
     func testRunningTurnFromTail() {
         let tail = [
             line("turn/start", ["turn": 1]),
@@ -399,5 +407,113 @@ final class DshSessionMonitorTests: XCTestCase {
     func testGarbageTailIsIgnored() {
         XCTAssertNil(DshSessionTail.sample(fromTail: ""))
         XCTAssertNil(DshSessionTail.sample(fromTail: "not json"))
+    }
+
+    // MARK: - Model + thinking level
+
+    func testRequestHeaderNamesTheModel() {
+        let tail = [
+            line("turn/start", ["turn": 7]),
+            requestHeader(model: "deepseek-v4.1-flash-expires-on-0910", effort: "max"),
+            toolCall("c1", "bash", ["command": "ls"]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.model, "deepseek-v4.1-flash-expires-on-0910")
+        XCTAssertEqual(sample?.thinkingLevel, "max")
+        XCTAssertTrue(sample?.sawModelInfo == true)
+    }
+
+    /// The bug this fixes: `model/selection` is written when the model is
+    /// switched, which can be long before the turn being watched, so the model
+    /// has to be read from the whole slice and not just the turn window.
+    func testModelRecordBeforeTheCurrentTurnStillCounts() {
+        let tail = [
+            line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-pro", "reasoningEffort": "high"]),
+            line("turn/start", ["turn": 1]),
+            toolCall("c1", "bash", ["command": "npm test"]),
+            toolResult("c1"),
+            line("turn/end", ["turn": 1, "reason": ["kind": "completed"]]),
+            line("turn/start", ["turn": 2]),
+            toolCall("c2", "grep", ["pattern": "TODO"]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, true)
+        XCTAssertEqual(sample?.model, "deepseek-v4-pro")
+        XCTAssertEqual(sample?.thinkingLevel, "high")
+        XCTAssertEqual(sample?.detail?.tasks.count, 1, "only the current turn's calls")
+    }
+
+    /// A newer record without an effort keeps the effort reported before it.
+    func testNewestModelRecordWinsAndKeepsEffort() {
+        let tail = [
+            requestHeader(model: "deepseek-v4.1-flash", effort: "max"),
+            line("turn/start", ["turn": 1]),
+            requestHeader(model: "deepseek-v4.1-pro", effort: nil),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.model, "deepseek-v4.1-pro")
+        XCTAssertEqual(sample?.thinkingLevel, "max")
+    }
+
+    func testMissingModelRecordIsReportedAsMissing() {
+        let sample = DshSessionTail.sample(fromTail: toolCall("c1", "bash", ["command": "sleep 1"]))
+        XCTAssertNil(sample?.model)
+        XCTAssertTrue(sample?.sawModelInfo == false)
+    }
+
+    func testShortModelName() {
+        XCTAssertEqual(
+            DshSessionMonitor.shortModelName("deepseek-v4.1-flash-expires-on-0910"),
+            "v4.1-flash"
+        )
+        XCTAssertEqual(DshSessionMonitor.shortModelName("deepseek-v4-pro"), "v4-pro")
+        XCTAssertEqual(DshSessionMonitor.shortModelName("gpt-5-codex"), "gpt-5-codex")
+        XCTAssertNil(DshSessionMonitor.shortModelName(nil))
+    }
+
+    func testModelMemoryIsPerSessionFile() {
+        let memory = DshModelMemory()
+        XCTAssertNil(memory.cached(for: "/sessions/a"))
+
+        memory.store(file: "/sessions/a", model: "deepseek-v4-pro", thinkingLevel: "high")
+        XCTAssertEqual(memory.cached(for: "/sessions/a")?.model, "deepseek-v4-pro")
+        XCTAssertEqual(memory.cached(for: "/sessions/a")?.thinkingLevel, "high")
+
+        // A poll whose slice said nothing keeps the last known value…
+        memory.store(file: "/sessions/a", model: nil, thinkingLevel: nil)
+        XCTAssertEqual(memory.cached(for: "/sessions/a")?.model, "deepseek-v4-pro")
+
+        // …but another session must not inherit it.
+        XCTAssertNil(memory.cached(for: "/sessions/b"))
+        memory.store(file: "/sessions/b", model: nil, thinkingLevel: nil)
+        XCTAssertNil(memory.cached(for: "/sessions/b")?.model)
+    }
+
+    func testDeepScanIsClaimedOncePerFile() {
+        let memory = DshModelMemory()
+        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/a"))
+        XCTAssertFalse(memory.claimDeepScan(for: "/sessions/a"))
+        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/b"))
+    }
+
+    func testDshSettingsDefaultModel() {
+        let yaml = """
+        ui-onboarding:
+          welcomeNoticeVersion: 2026-08-13.1
+        agent-default-model:
+          provider: deepseek-official
+          model: deepseek-v4.1-flash-expires-on-0910
+          reasoningEffort: max
+        ui-theme:
+          preference: system
+        """
+
+        let info = DshSessionMonitor.defaultModelInfo(settings: yaml)
+        XCTAssertEqual(info?.model, "deepseek-v4.1-flash-expires-on-0910")
+        XCTAssertEqual(info?.effort, "max")
+        XCTAssertNil(DshSessionMonitor.defaultModelInfo(settings: "ui-theme:\n  preference: system\n"))
     }
 }

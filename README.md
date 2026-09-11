@@ -105,7 +105,9 @@ bash scripts/install-sounds.sh ~/Desktop  # 或指定目录
 | `agent_settled` / `session_shutdown` | idle |
 | 模型 / 思考等级切换 | 模型、思考程度 |
 
-**DSH（`dst`）** — **不需要 hook**：它的会话文件本身就是数据源。`dst`（`dsh --profile dsh-tui`）把会话写成逐帧追加的 zstd JSONL，监视器只解压尾部若干帧（约 5 ms），读取 `turn/start`·`turn/end`·`tool/call`·`tool/result`·`model/selection`·`assistant/message.usage`·`todo/write`·`llm/retry`，因此同样能给出当前任务、模型、思考等级、命中率与失败判定。
+**DSH（`dst`）** — **不需要 hook**：它的会话文件本身就是数据源。`dst`（`dsh --profile dsh-tui`）把会话写成逐帧追加的 zstd JSONL，监视器只解压尾部若干帧（约 5 ms），读取 `turn/start`·`turn/end`·`tool/call`·`tool/result`·`request/header`·`model/selection`·`assistant/message.usage`·`todo/write`·`llm/retry`，因此同样能给出当前任务、模型、思考等级、命中率与失败判定。
+
+模型与思考等级要特别说明：DSH 只在**切换模型**（`model/selection`）或**每次请求**（`request/header.header.config`）时写一次，长回合里它们会落在尾部窗口之外（本机实测：距文件末尾约 1000 条记录）。所以监视器按三级兜底取值：① 尾部窗口里最新的那条 → ② 本次会话已记住的值（按会话文件缓存，切换会话即失效）→ ③ 首次见到该会话文件时向后深扫一次（2 MB → 8 MB → 32 MB 逐级放大，用 `zstd | grep | tail` 流式过滤，不把窗口展开进内存）；仍未找到就退到 `~/.dsh/settings.yaml` 的 `agent-default-model`。收起状态里模型名会做简写（`deepseek-v4.1-flash-expires-on-0910` → `v4.1-flash`），完整 id 保留在悬停提示与展开面板中。
 
 **Claude Code & Codex** — `hooks/cli/atoll-notch-status.py`（同一个脚本，分别注册在 `~/.claude/settings.json` 与 `~/.codex/hooks.json`；脚本把状态写在**自己所在目录**，所以两份互不干扰）
 

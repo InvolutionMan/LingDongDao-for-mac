@@ -774,7 +774,7 @@ struct ContentView: View {
                 CLIActivityDebugLog.record(
                     "debug auto-open: piTasks=\(detail.tasks.count) error=\(hasError ? 1 : 0) notchState=\(vm.notchState) view=\(coordinator.currentView) detail=\(coordinator.showsCLIActivityDetail ? 1 : 0)"
                 )
-                coordinator.cliActivityDetailImmersive = false
+                coordinator.cliActivityDetailImmersive = true
                 coordinator.showsCLIActivityDetail = true
                 if vm.notchState == .closed {
                     openNotch()
@@ -2174,12 +2174,12 @@ struct ContentView: View {
     private func openNotch() {
         // Opening the island (click, gesture, sneak peek) while a CLI agent runs
         // shows the live detail panel — tool, task list, tokens — instead of the
-        // Home tab. The tab bar stays visible so Home/Timer/Shelf remain
-        // reachable; only the hover path hides it (immersive).
+        // Home tab, and it owns the whole island: the tab bar and the rest of the
+        // home chrome stay out of the way.
         if vm.notchState == .closed,
            coordinator.currentView == .home,
            shouldShowCLIActivityDetailOnHover {
-            coordinator.cliActivityDetailImmersive = false
+            coordinator.cliActivityDetailImmersive = true
             coordinator.showsCLIActivityDetail = true
             CLIActivityDebugLog.record(
                 "open-click armed detail panel: piTasks=\(piSessionMonitor.detail?.tasks.count ?? -1) codex=\(codexSessionMonitor.isActive ? 1 : 0) claude=\(claudeSessionMonitor.isActive ? 1 : 0) dsh=\(dshSessionMonitor.isActive ? 1 : 0)"
@@ -2404,6 +2404,23 @@ struct ContentView: View {
             || (dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity])
     }
 
+    /// Which half of the closed island the pointer is over. The two halves open
+    /// different things: the left one the running CLI's detail panel, the right
+    /// one the ordinary home page.
+    private enum IslandHoverSide {
+        case left
+        case right
+    }
+
+    /// The pill is centred in its window, so the window's midpoint is the
+    /// island's midpoint.
+    private func currentHoverSide() -> IslandHoverSide {
+        guard let window = NSApplication.shared.windows.first(where: { $0 is DynamicIslandWindow }) else {
+            return .right
+        }
+        return NSEvent.mouseLocation.x < window.frame.midX ? .left : .right
+    }
+
     /// True when the closed notch is currently showing a CLI live activity, so
     /// hovering should expand into that activity's detail panel.
     private var shouldShowCLIActivityDetailOnHover: Bool {
@@ -2474,13 +2491,16 @@ struct ContentView: View {
                             self.coordinator.currentView = .timer
                         }
                     }
-                    // A running CLI agent turns the hover-open into its live
-                    // detail panel (tool, tasks, cache hit, tokens) instead of Home.
-                    let wantsDetail = self.shouldShowCLIActivityDetailOnHover
+                    // Hovering a running CLI agent's half of the pill opens its
+                    // live detail panel (tool, tasks, cache hit, tokens); the
+                    // other half opens the ordinary home page. The panel always
+                    // owns the whole island — no tab bar over it.
+                    let side = self.currentHoverSide()
+                    let wantsDetail = self.shouldShowCLIActivityDetailOnHover && side == .left
                     self.coordinator.cliActivityDetailImmersive = wantsDetail
                     self.coordinator.showsCLIActivityDetail = wantsDetail
                     CLIActivityDebugLog.record(
-                        "hover-open firing: cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
+                        "hover-open firing: side=\(side == .left ? "left" : "right") cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
                     )
                     self.openNotch()
                 }

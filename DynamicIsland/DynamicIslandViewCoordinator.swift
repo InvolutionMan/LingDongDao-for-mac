@@ -144,6 +144,10 @@ class DynamicIslandViewCoordinator: ObservableObject {
     /// island on every layout pass.
     var mediaDividerX: CGFloat?
 
+    /// Same, for the running timer's ring. Both are reported independently, so
+    /// the hover can split the pill into task / playback / timer.
+    var timerDividerX: CGFloat?
+
     /// Measured height of the CLI detail panel's content, published by
     /// `CLIActivityDetailView` so the island can grow to fit every active agent
     /// card instead of scrolling them.

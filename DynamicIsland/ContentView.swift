@@ -1372,17 +1372,13 @@ struct ContentView: View {
                   guard hoverSplitActive,
                         vm.notchState == .open,
                         shouldShowCLIActivityDetailOnHover else { return }
-                  let wantsDetail = currentHoverSide() == .left
-                  guard wantsDetail != coordinator.showsCLIActivityDetail else { return }
+                  let destination = currentHoverDestination()
+                  guard destination != currentIslandDestination else { return }
                   CLIActivityDebugLog.record(
-                      "hover split switched: side=\(wantsDetail ? "left" : "right") split=\(coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "mid")"
+                      "hover split switched: zone=\(Self.describe(destination)) mediaSplit=\(coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "-") timerSplit=\(coordinator.timerDividerX.map { String(format: "%.1f", $0) } ?? "-")"
                   )
                   withAnimation(.smooth(duration: 0.22)) {
-                      coordinator.cliActivityDetailImmersive = wantsDetail
-                      coordinator.showsCLIActivityDetail = wantsDetail
-                      if !wantsDetail {
-                          coordinator.currentView = .home
-                      }
+                      applyHoverDestination(destination)
                   }
               }
               .blur(radius: abs(gestureProgress) > 0.3 ? min(abs(gestureProgress), 8) : 0)
@@ -2433,32 +2429,56 @@ struct ContentView: View {
             || (dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity])
     }
 
-    /// Which half of the closed island the pointer is over. The two halves open
-    /// different things: the left one the running CLI's detail panel, the right
-    /// one the ordinary home page.
-    private enum IslandHoverSide {
-        case left
-        case right
-    }
-
-    /// The split runs along the media divider when media is showing: everything
-    /// left of it belongs to the running task, everything right of it — the
-    /// album-art circle — belongs to playback. With no media on screen there is
-    /// no divider, so the island's midpoint splits the two halves instead.
-    private func currentHoverSide() -> IslandHoverSide {
+    private func currentHoverDestination() -> IslandHoverDestination {
         guard let window = NSApplication.shared.windows.first(where: { $0 is DynamicIslandWindow }) else {
-            return .right
+            return .home
         }
-        return isLeftOfMediaSplit(windowX: NSEvent.mouseLocation.x - window.frame.minX) ? .left : .right
+        return hoverDestination(windowX: NSEvent.mouseLocation.x - window.frame.minX)
     }
 
-    /// `windowX` is in the island window's own coordinates (top-left origin) —
-    /// the same space the badge reports its divider in, and the space SwiftUI
-    /// hands to `onContinuousHover(coordinateSpace: .global)`.
-    private func isLeftOfMediaSplit(windowX: CGFloat) -> Bool {
+    /// Where a pointer at `windowX` lands, in the island window's own
+    /// coordinates (top-left origin) — the space the badges report their
+    /// dividers in.
+    ///
+    /// Each companion in the trailing corner owns the stretch to the right of its
+    /// divider; everything before the first one is the task's. With no companion
+    /// on screen the island's midpoint splits detail from home, as before.
+    private func hoverDestination(windowX: CGFloat) -> IslandHoverDestination {
         let windowWidth = NSApplication.shared.windows
             .first { $0 is DynamicIslandWindow }?.frame.width ?? vm.closedNotchSize.width
-        return windowX < (coordinator.mediaDividerX ?? windowWidth / 2)
+        return islandHoverDestination(
+            windowX: windowX,
+            mediaDivider: coordinator.mediaDividerX,
+            timerDivider: coordinator.timerDividerX,
+            windowWidth: windowWidth
+        )
+    }
+
+    /// What the island is showing right now, for the split watcher to compare
+    /// against.
+    private var currentIslandDestination: IslandHoverDestination {
+        if coordinator.showsCLIActivityDetail { return .cliDetail }
+        return coordinator.currentView == .timer ? .timer : .home
+    }
+
+    private static func describe(_ destination: IslandHoverDestination) -> String {
+        switch destination {
+        case .cliDetail: return "cli-detail"
+        case .home: return "home"
+        case .timer: return "timer"
+        }
+    }
+
+    private func applyHoverDestination(_ destination: IslandHoverDestination) {
+        let wantsDetail = destination == .cliDetail
+        coordinator.cliActivityDetailImmersive = wantsDetail
+        coordinator.showsCLIActivityDetail = wantsDetail
+        switch destination {
+        case .cliDetail, .home:
+            if !wantsDetail { coordinator.currentView = .home }
+        case .timer:
+            coordinator.currentView = .timer
+        }
     }
 
     /// True when the closed notch is currently showing a CLI live activity, so
@@ -2538,25 +2558,22 @@ struct ContentView: View {
                     // other half opens the ordinary home page. The panel always
                     // owns the whole island — no tab bar over it.
                     let cliActive = self.shouldShowCLIActivityDetailOnHover
-                    let side = self.currentHoverSide()
-                    let wantsDetail = cliActive && side == .left
-                    // While this island stays open, the pointer's side keeps
-                    // deciding what it shows — see the continuous-hover watcher.
+                    let destination = self.currentHoverDestination()
+                    // Without a running agent there is no detail to show, so the
+                    // island opens on what the pointer's zone asks for.
+                    let resolved: IslandHoverDestination = cliActive ? destination : .home
+                    // While this island stays open the pointer's zone keeps
+                    // deciding what it shows — see the split watcher below.
                     self.hoverSplitActive = cliActive
-                    if cliActive, side == .right {
-                        // The media side is about playback: land on Home.
-                        withAnimation(.smooth) {
-                            self.coordinator.currentView = .home
-                        }
-                    }
-                    // Whatever opened it, the flags are set last: a running CLI
+                    // Whatever opened it, the zone is applied last: a running CLI
                     // makes `openNotch()` arm its detail panel, and that must not
-                    // override the side this hover picked.
+                    // override what this hover picked.
                     self.openNotch()
-                    self.coordinator.cliActivityDetailImmersive = wantsDetail
-                    self.coordinator.showsCLIActivityDetail = wantsDetail
+                    withAnimation(.smooth) {
+                        self.applyHoverDestination(resolved)
+                    }
                     CLIActivityDebugLog.record(
-                        "hover-open firing: side=\(side == .left ? "left" : "right") split=\(self.coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "mid") cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
+                        "hover-open firing: zone=\(Self.describe(resolved)) mediaSplit=\(self.coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "-") timerSplit=\(self.coordinator.timerDividerX.map { String(format: "%.1f", $0) } ?? "-") cliDetail=\(resolved == .cliDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
                     )
                 }
             }

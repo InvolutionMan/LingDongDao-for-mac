@@ -16,6 +16,7 @@ struct CLIStackActivityView: View {
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject private var coordinator = DynamicIslandViewCoordinator.shared
     @ObservedObject private var lockScreenManager = LockScreenManager.shared
+    @ObservedObject private var timerManager = TimerManager.shared
 
     @State private var isHovering: Bool = false
     @State private var expanded: Bool = false
@@ -96,6 +97,7 @@ struct CLIStackActivityView: View {
             + 8 + elapsedTextWidth
             + 3 + checkmarkSize
             + musicBadgeWidth
+            + timerBadgeWidth
             + 8
     }
 
@@ -105,6 +107,25 @@ struct CLIStackActivityView: View {
         // The rows already end with an 8pt trailing pad, so the badge brings no
         // leading gap of its own.
         return MusicCornerBadge.width(diameter: musicBadgeDiameter, leadingGap: 0)
+    }
+
+    /// A running timer shares the trailing corner as well, behind its own divider.
+    private var showsTimerBadge: Bool {
+        timerManager.isTimerActive
+            && coordinator.timerLiveActivityEnabled
+            && !lockScreenManager.isLocked
+            && !vm.hideOnClosed
+    }
+
+    private var timerBadgeWidth: CGFloat {
+        guard showsTimerBadge else { return 0 }
+        // No leading gap of its own when it is the only companion (the rows
+        // already pad the trailing edge), a normal one when it follows media.
+        return MusicCornerBadge.width(
+            diameter: musicBadgeDiameter,
+            leadingGap: musicBadgeArtwork == nil ? 0 : 8,
+            labelWidth: TimerRingBadge.labelWidth(timerManager.formattedRemainingTime())
+        )
     }
 
     private var musicBadgeDiameter: CGFloat { max(15, notchContentHeight - 2) }
@@ -144,30 +165,46 @@ struct CLIStackActivityView: View {
             VStack(spacing: rowSpacing) {
                 if showsPi {
                     piRow
-                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                        .frame(width: displayWidth - musicBadgeWidth - timerBadgeWidth, alignment: .leading)
                 }
                 if showsCodex {
                     codexRow
-                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                        .frame(width: displayWidth - musicBadgeWidth - timerBadgeWidth, alignment: .leading)
                 }
                 if showsClaude {
                     claudeRow
-                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                        .frame(width: displayWidth - musicBadgeWidth - timerBadgeWidth, alignment: .leading)
                 }
                 if showsDsh {
                     dshRow
-                        .frame(width: displayWidth - musicBadgeWidth, alignment: .leading)
+                        .frame(width: displayWidth - musicBadgeWidth - timerBadgeWidth, alignment: .leading)
                 }
             }
 
-            // One circle for the whole stack, centred against every row.
+            // One circle per companion for the whole stack, centred against
+            // every row.
             if let artwork = musicBadgeArtwork {
                 MusicCornerBadge(
-                    artwork: artwork,
+                    content: .artwork(artwork),
                     diameter: musicBadgeDiameter,
                     leadingGap: 0,
                     isPaused: isHovering || !musicManager.isPlaying
                 )
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+            }
+
+            if showsTimerBadge {
+                MusicCornerBadge(
+                    content: .timer(
+                        progress: timerManager.progress,
+                        color: timerManager.timerColor,
+                        label: timerManager.formattedRemainingTime()
+                    ),
+                    diameter: musicBadgeDiameter,
+                    slot: .timer,
+                    leadingGap: musicBadgeArtwork == nil ? 0 : 8
+                )
+                    .help(timerManager.timerName + " · " + timerManager.formattedRemainingTime())
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }

@@ -8,10 +8,26 @@ import SwiftUI
 ///
 /// The badge owns its own spacing (the gap before the divider and after it), so
 /// callers only reserve `MusicCornerBadge.width(...)` and append the view.
+/// What the badge shows in its circle. Media draws the album art, a running
+/// timer draws its progress ring — both keep the same hairline divider, the same
+/// gaps and the same reserved width.
+enum IslandCornerBadgeContent {
+    case artwork(NSImage)
+    case timer(progress: Double, color: Color, label: String?)
+}
+
+/// Which divider slot the badge reports its position into, so a hover can tell
+/// the task's half from the media half from the timer's.
+enum IslandCornerBadgeSlot {
+    case media
+    case timer
+}
+
 struct MusicCornerBadge: View {
-    let artwork: NSImage
-    /// Diameter of the album-art circle; the caller sizes it to the pill height.
+    let content: IslandCornerBadgeContent
+    /// Diameter of the circle; the caller sizes it to the pill height.
     let diameter: CGFloat
+    var slot: IslandCornerBadgeSlot = .media
     /// Space in front of the divider. Callers that already leave a trailing gap
     /// (the stacked rows) pass 0.
     var leadingGap: CGFloat = 8
@@ -27,9 +43,15 @@ struct MusicCornerBadge: View {
     /// uncovers the rim — its diagonal has to cover the disc (√2 ≈ 1.415).
     static let spinOverflow: CGFloat = 1.45
 
-    /// Total width the badge adds to a pill.
-    static func width(diameter: CGFloat, leadingGap: CGFloat = 8, dividerGap: CGFloat = 8) -> CGFloat {
-        leadingGap + 1 + dividerGap + diameter
+    /// Total width the badge adds to a pill. `labelWidth` is the countdown a
+    /// timer badge draws beside its ring (0 for media, which is art only).
+    static func width(
+        diameter: CGFloat,
+        leadingGap: CGFloat = 8,
+        dividerGap: CGFloat = 8,
+        labelWidth: CGFloat = 0
+    ) -> CGFloat {
+        leadingGap + 1 + dividerGap + diameter + labelWidth
     }
 
     /// The usual gap in front of the divider.
@@ -63,25 +85,19 @@ struct MusicCornerBadge: View {
         return (turns - turns.rounded(.down)) * 360
     }
 
+    /// Width of the countdown a timer badge draws beside its ring.
+    private var labelWidth: CGFloat {
+        guard case .timer(_, _, let label) = content else { return 0 }
+        return TimerRingBadge.labelWidth(label)
+    }
+
     @State private var spinBase = Date()
     @State private var pauseBegan: Date?
 
-    var body: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 1, height: max(8, diameter * 0.7))
-                .padding(.leading, leadingGap)
-                .padding(.trailing, dividerGap)
-                .background(
-                    GeometryReader { geometry in
-                        let x = geometry.frame(in: .global).midX
-                        Color.clear
-                            .onAppear { DynamicIslandViewCoordinator.shared.mediaDividerX = x }
-                            .onChange(of: x) { _, newX in DynamicIslandViewCoordinator.shared.mediaDividerX = newX }
-                    }
-                )
-
+    @ViewBuilder
+    private var circle: some View {
+        switch content {
+        case .artwork(let artwork):
             TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: isPaused)) { context in
                 SpinningAlbumArt(
                     artwork: artwork,
@@ -94,9 +110,51 @@ struct MusicCornerBadge: View {
             .overlay(
                 Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
             )
+        case .timer(let progress, let color, let label):
+            ZStack {
+                TimerRingBadge(
+                    progress: progress,
+                    color: color,
+                    diameter: diameter,
+                    label: label
+                )
+            }
+            .frame(width: diameter + TimerRingBadge.labelWidth(label), height: diameter)
         }
-        .frame(width: Self.width(diameter: diameter, leadingGap: leadingGap, dividerGap: dividerGap))
-        .onDisappear { DynamicIslandViewCoordinator.shared.mediaDividerX = nil }
+    }
+
+    private func report(dividerX: CGFloat?) {
+        switch slot {
+        case .media: DynamicIslandViewCoordinator.shared.mediaDividerX = dividerX
+        case .timer: DynamicIslandViewCoordinator.shared.timerDividerX = dividerX
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 1, height: max(8, diameter * 0.7))
+                .padding(.leading, leadingGap)
+                .padding(.trailing, dividerGap)
+                .background(
+                    GeometryReader { geometry in
+                        let x = geometry.frame(in: .global).midX
+                        Color.clear
+                            .onAppear { report(dividerX: x) }
+                            .onChange(of: x) { _, newX in report(dividerX: newX) }
+                    }
+                )
+
+            circle
+        }
+        .frame(width: Self.width(
+            diameter: diameter,
+            leadingGap: leadingGap,
+            dividerGap: dividerGap,
+            labelWidth: labelWidth
+        ))
+        .onDisappear { report(dividerX: nil) }
         .onChange(of: isPaused) { _, paused in
             if paused {
                 pauseBegan = Date()

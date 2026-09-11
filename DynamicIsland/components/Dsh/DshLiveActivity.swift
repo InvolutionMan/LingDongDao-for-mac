@@ -17,6 +17,7 @@ struct DshLiveActivity: View {
     @ObservedObject private var musicManager = MusicManager.shared
     @ObservedObject private var coordinator = DynamicIslandViewCoordinator.shared
     @ObservedObject private var lockScreenManager = LockScreenManager.shared
+    @ObservedObject private var timerManager = TimerManager.shared
     @State private var isHovering: Bool = false
     @State private var expanded: Bool = false
     @State private var spinning: Bool = false
@@ -94,6 +95,7 @@ struct DshLiveActivity: View {
             + 8 + elapsedTextWidth
             + (isCompleted ? 3 + checkmarkSize : 0)
             + musicBadgeWidth
+            + timerBadgeWidth
             + 8
     }
 
@@ -160,6 +162,22 @@ struct DshLiveActivity: View {
     private var musicBadgeWidth: CGFloat {
         guard musicBadgeArtwork != nil else { return 0 }
         return MusicCornerBadge.width(diameter: musicBadgeDiameter, leadingGap: musicBadgeLeadingGap)
+    }
+
+    /// A running timer shares the island with the task the same way media does.
+    private var showsTimerBadge: Bool {
+        timerManager.isTimerActive
+            && coordinator.timerLiveActivityEnabled
+            && !lockScreenManager.isLocked
+            && !vm.hideOnClosed
+    }
+
+    private var timerBadgeWidth: CGFloat {
+        guard showsTimerBadge else { return 0 }
+        return MusicCornerBadge.width(
+            diameter: musicBadgeDiameter,
+            labelWidth: TimerRingBadge.labelWidth(timerManager.formattedRemainingTime())
+        )
     }
 
     var body: some View {
@@ -306,12 +324,26 @@ struct DshLiveActivity: View {
 
                     if let artwork = musicBadgeArtwork {
                         MusicCornerBadge(
-                            artwork: artwork,
+                            content: .artwork(artwork),
                             diameter: musicBadgeDiameter,
                             leadingGap: musicBadgeLeadingGap,
                             isPaused: isHovering || !musicManager.isPlaying
                         )
                             .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    }
+
+                    if showsTimerBadge {
+                        MusicCornerBadge(
+                            content: .timer(
+                                progress: timerManager.progress,
+                                color: timerManager.timerColor,
+                                label: timerManager.formattedRemainingTime()
+                            ),
+                            diameter: musicBadgeDiameter,
+                            slot: .timer
+                        )
+                        .help(timerManager.timerName + " · " + timerManager.formattedRemainingTime())
+                        .transition(.opacity.combined(with: .scale(scale: 0.85)))
                     }
                 }
         .frame(height: notchContentHeight, alignment: .center)

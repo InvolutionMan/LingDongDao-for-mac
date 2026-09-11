@@ -125,7 +125,7 @@ final class MusicCornerBadgeTests: XCTestCase {
                 if hasCompletionMark {
                     Color.blue.frame(width: markSize, height: markSize).padding(.leading, markGap)
                 }
-                MusicCornerBadge(artwork: artwork, diameter: diameter, leadingGap: leading)
+                MusicCornerBadge(content: .artwork(artwork), diameter: diameter, leadingGap: leading)
             }
             .background(Color.black)
 
@@ -162,6 +162,78 @@ final class MusicCornerBadgeTests: XCTestCase {
             "without a mark the badge should be pulled back into the slack (got \(afterDigits)pt)"
         )
         XCTAssertGreaterThan(afterDigits, 0, "and must not touch the digits (got \(afterDigits)pt)")
+    }
+
+    // MARK: - Hover zones
+
+    func testHoverZonesFollowTheDividers() {
+        // media only: task half, then playback
+        XCTAssertEqual(islandHoverDestination(windowX: 100, mediaDivider: 400, timerDivider: nil, windowWidth: 720), .cliDetail)
+        XCTAssertEqual(islandHoverDestination(windowX: 400, mediaDivider: 400, timerDivider: nil, windowWidth: 720), .home)
+        XCTAssertEqual(islandHoverDestination(windowX: 650, mediaDivider: 400, timerDivider: nil, windowWidth: 720), .home)
+
+        // timer only: task half, then the timer page
+        XCTAssertEqual(islandHoverDestination(windowX: 100, mediaDivider: nil, timerDivider: 400, windowWidth: 720), .cliDetail)
+        XCTAssertEqual(islandHoverDestination(windowX: 401, mediaDivider: nil, timerDivider: 400, windowWidth: 720), .timer)
+
+        // both: task · playback · timer
+        XCTAssertEqual(islandHoverDestination(windowX: 100, mediaDivider: 380, timerDivider: 560, windowWidth: 720), .cliDetail)
+        XCTAssertEqual(islandHoverDestination(windowX: 420, mediaDivider: 380, timerDivider: 560, windowWidth: 720), .home)
+        XCTAssertEqual(islandHoverDestination(windowX: 600, mediaDivider: 380, timerDivider: 560, windowWidth: 720), .timer)
+
+        // nothing playing or counting: the midpoint keeps the old behaviour
+        XCTAssertEqual(islandHoverDestination(windowX: 300, mediaDivider: nil, timerDivider: nil, windowWidth: 720), .cliDetail)
+        XCTAssertEqual(islandHoverDestination(windowX: 420, mediaDivider: nil, timerDivider: nil, windowWidth: 720), .home)
+    }
+
+    func testTimerBadgeReservesRoomForItsCountdown() {
+        let diameter: CGFloat = 22
+        XCTAssertEqual(
+            MusicCornerBadge.width(diameter: diameter, labelWidth: 0),
+            MusicCornerBadge.width(diameter: diameter),
+            "media has no label"
+        )
+        let label = TimerRingBadge.labelWidth("12:34")
+        XCTAssertGreaterThan(label, 0)
+        XCTAssertEqual(
+            MusicCornerBadge.width(diameter: diameter, labelWidth: label),
+            MusicCornerBadge.width(diameter: diameter) + label,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(TimerRingBadge.labelWidth(nil), 0)
+        XCTAssertGreaterThan(
+            TimerRingBadge.labelWidth("1:02:07"),
+            TimerRingBadge.labelWidth("12:34"),
+            "a longer countdown needs more room"
+        )
+    }
+
+    /// The ring is the timer's album art: a progress arc, nothing else.
+    @MainActor
+    func testTimerRingDrawsTheProgressArc() throws {
+        for progress in [0.25, 0.5, 0.9] {
+            let diameter: CGFloat = 22
+            let bitmap = try Self.render(
+                TimerRingBadge(progress: progress, color: .orange, diameter: diameter)
+                    .frame(width: diameter, height: diameter)
+                    .background(Color.black),
+                scale: 4
+            )
+            let centre = Double(bitmap.pixelsWide) / 2
+            let radius = Double(diameter) / 2 * 4 - 4
+            var lit = 0
+            for step in 0..<72 {
+                // Start at the top and go clockwise, the way the arc is drawn.
+                let angle = (Double(step) / 72) * 2 * .pi - .pi / 2
+                let x = Int(centre + radius * cos(angle))
+                let y = Int(centre + radius * sin(angle))
+                guard let colour = bitmap.colorAt(x: x, y: y) else { continue }
+                // The arc is the tinted part; the track is a faint white.
+                if colour.redComponent > 0.5, colour.blueComponent < 0.4 { lit += 1 }
+            }
+            let covered = Double(lit) / 72
+            XCTAssertEqual(covered, progress, accuracy: 0.12, "arc coverage for progress \(progress)")
+        }
     }
 
     // MARK: - The record turns
@@ -280,7 +352,7 @@ final class MusicCornerBadgeTests: XCTestCase {
         let artwork = Self.solidArtwork(size: 64)
 
         let renderer = ImageRenderer(
-            content: MusicCornerBadge(artwork: artwork, diameter: diameter)
+            content: MusicCornerBadge(content: .artwork(artwork), diameter: diameter)
                 .frame(width: width, height: diameter)
                 .background(Color.black)
         )

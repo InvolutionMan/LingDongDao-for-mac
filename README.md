@@ -2,7 +2,7 @@
 
 基于 [Atoll](https://github.com/Ebullioscopic/Atoll)（macOS 灵动岛应用，GPL-3.0）的个人分支。
 
-本分支在上游基础上新增了 **AI 编程 CLI 的实时活动**：`pi`、`Codex CLI`、`Claude Code` 在灵动岛里像计时器一样实时显示正在做什么，并附带缓存命中率与 token 用量。
+本分支在上游基础上新增了 **AI 编程 CLI 的实时活动**：`pi`、`Codex CLI`、`Claude Code`、`DSH`（终端里的 `dst`）在灵动岛里像计时器一样实时显示正在做什么，并附带缓存命中率与 token 用量。
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1. CLI 实时活动（收起状态的一行）
 
-三个 CLI 各自有图标与配色，收起时一行显示：
+四个 CLI 各自有图标与配色，收起时一行显示：
 
 ```
 ( π )  deepseek-v4.1-flash-expires-on-0910  high   99%   01:42
@@ -41,7 +41,7 @@ Cache hit 99%   Tokens 111K   in / out 12.4K / 830   cached 98K
 
 ### 3. 多 CLI 同时运行 → 竖向堆叠 + 展开不再滚动
 
-pi + Codex + Claude 同时工作时，收起状态**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
+pi / Codex / Claude / DSH 同时工作时，收起状态**长度不变、只变厚**，每行一个 CLI，命中率列对齐。
 
 展开后呢？面板**按活跃数量撑高**（`计数 × 卡片高度 + 间距`，见 `cliActivityDetailHeight`），并且**每多一个 CLI 就往下长一截**（灵动岛顶边固定在屏幕顶部，只向下扩展）：
 
@@ -64,6 +64,7 @@ pi + Codex + Claude 同时工作时，收起状态**长度不变、只变厚**�
 | 模型连接失败 / 连接超时 / 输出失败 / 限流 / 被中断 | **失败** |
 | 本轮最后一个工具执行失败（命令非 0 退出、读取失败…） | **失败** |
 | 智能体卡在等人确认（权限弹窗、批准对话框、"等待输入"） | **手动确认** |
+| DSH 调用 `ask_user_question` 等你回答 | **手动确认** |
 | pi 进程直接消失（来不及上报状态） | 不播放 |
 
 音效文件放在 Atoll 自己的目录，不会因为「下载」文件夹被清理而失效：
@@ -103,6 +104,8 @@ bash scripts/install-sounds.sh ~/Desktop  # 或指定目录
 | `tool_execution_start/end` | 当前工具 → running / completed，并记录该工具是否失败（`isError`） |
 | `agent_settled` / `session_shutdown` | idle |
 | 模型 / 思考等级切换 | 模型、思考程度 |
+
+**DSH（`dst`）** — **不需要 hook**：它的会话文件本身就是数据源。`dst`（`dsh --profile dsh-tui`）把会话写成逐帧追加的 zstd JSONL，监视器只解压尾部若干帧（约 5 ms），读取 `turn/start`·`turn/end`·`tool/call`·`tool/result`·`model/selection`·`assistant/message.usage`·`todo/write`·`llm/retry`，因此同样能给出当前任务、模型、思考等级、命中率与失败判定。
 
 **Claude Code & Codex** — `hooks/cli/atoll-notch-status.py`（同一个脚本，分别注册在 `~/.claude/settings.json` 与 `~/.codex/hooks.json`；脚本把状态写在**自己所在目录**，所以两份互不干扰）
 
@@ -199,13 +202,14 @@ DynamicIsland/
   managers/PiSessionMonitor.swift       pi 会话监视（状态文件 + JSONL 兜底）
   managers/CodexSessionMonitor.swift    Codex rollout 解析
   managers/ClaudeSessionMonitor.swift   Claude transcript 解析 + hook 状态
+  managers/DshSessionMonitor.swift      DSH 会话（zstd JSONL）尾部解析
   managers/CLIActivityDebugLog.swift    诊断日志（默认关闭）
   managers/CLIFinishSound.swift         音效（成功/失败/手动确认，含系统音回退）
   models/CLIUsage.swift                 token 用量 / 命中率（三种 provider 归一化）
   models/CLIToolActivity.swift          当前工具与任务列表
-  components/Pi|Codex|Claude/           三个 CLI 的收起态活动
+  components/Pi|Codex|Claude|Dsh/       四个 CLI 的收起态活动
   components/CLIActivityDetailView.swift  展开面板
-  components/CLIStackActivityView.swift   多 CLI 堆叠
+  components/CLIStackActivityView.swift   多 CLI 堆叠（含 DSH）
   observers/FullscreenMediaDetection.swift 菜单栏遮挡检测
 ```
 

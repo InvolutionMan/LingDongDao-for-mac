@@ -531,6 +531,7 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         if PiSessionMonitor.shared.isActive { count += 1 }
         if CodexSessionMonitor.shared.isActive { count += 1 }
         if ClaudeSessionMonitor.shared.isActive { count += 1 }
+        if DshSessionMonitor.shared.isActive { count += 1 }
         return count
     }
 

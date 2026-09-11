@@ -12,6 +12,7 @@ struct CLIStackActivityView: View {
     @ObservedObject var piMonitor = PiSessionMonitor.shared
     @ObservedObject var codexMonitor = CodexSessionMonitor.shared
     @ObservedObject var claudeMonitor = ClaudeSessionMonitor.shared
+    @ObservedObject var dshMonitor = DshSessionMonitor.shared
 
     @State private var isHovering: Bool = false
     @State private var expanded: Bool = false
@@ -21,13 +22,16 @@ struct CLIStackActivityView: View {
     @State private var codexCheckProgress: CGFloat = 0
     @State private var claudeSpinning = false
     @State private var claudeCheckProgress: CGFloat = 0
+    @State private var dshSpinning = false
+    @State private var dshCheckProgress: CGFloat = 0
 
     private var showsPi: Bool { piMonitor.isActive && Defaults[.enablePiLiveActivity] }
     private var showsCodex: Bool { codexMonitor.isActive && Defaults[.enableCodexLiveActivity] }
     private var showsClaude: Bool { claudeMonitor.isActive && Defaults[.enableClaudeLiveActivity] }
+    private var showsDsh: Bool { dshMonitor.isActive && Defaults[.enableDshLiveActivity] }
 
     private var rowCount: Int {
-        (showsPi ? 1 : 0) + (showsCodex ? 1 : 0) + (showsClaude ? 1 : 0)
+        (showsPi ? 1 : 0) + (showsCodex ? 1 : 0) + (showsClaude ? 1 : 0) + (showsDsh ? 1 : 0)
     }
 
     private var notchContentHeight: CGFloat {
@@ -48,6 +52,7 @@ struct CLIStackActivityView: View {
         piMonitor.detail?.cacheHitRate != nil
             || codexMonitor.usage?.cacheHitRate != nil
             || claudeMonitor.usage?.cacheHitRate != nil
+            || dshMonitor.detail?.cacheHitRate != nil
     }
     private var checkmarkSize: CGFloat { 16 }
     private var pillWidth: CGFloat { vm.closedNotchSize.width + (isHovering ? 8 : 0) }
@@ -118,6 +123,10 @@ struct CLIStackActivityView: View {
                 claudeRow
                     .frame(width: displayWidth, alignment: .leading)
             }
+            if showsDsh {
+                dshRow
+                    .frame(width: displayWidth, alignment: .leading)
+            }
         }
         .padding(.vertical, islandVerticalPadding)
         .frame(width: displayWidth, height: displayHeight, alignment: .center)
@@ -146,6 +155,9 @@ struct CLIStackActivityView: View {
         .onChange(of: claudeMonitor.phase) { _, newPhase in
             syncClaude(newPhase)
         }
+        .onChange(of: dshMonitor.phase) { _, newPhase in
+            syncDsh(newPhase)
+        }
         .animation(.smooth(duration: 0.35), value: displayWidth)
     }
 
@@ -161,6 +173,22 @@ struct CLIStackActivityView: View {
             piCheckProgress = 0
             withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
                 piCheckProgress = 1
+            }
+        case .idle:
+            break
+        }
+    }
+
+    private func syncDsh(_ newPhase: PiActivityPhase) {
+        switch newPhase {
+        case .running:
+            withAnimation(.smooth(duration: 0.3)) { dshSpinning = true }
+            dshCheckProgress = 0
+        case .completed:
+            withAnimation(.smooth(duration: 0.3)) { dshSpinning = false }
+            dshCheckProgress = 0
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
+                dshCheckProgress = 1
             }
         case .idle:
             break
@@ -228,6 +256,40 @@ struct CLIStackActivityView: View {
                 frozenTime: piFrozenTime,
                 showCheck: piIsCompleted,
                 checkProgress: piCheckProgress
+            )
+            .padding(.leading, 4)
+        }
+        .frame(height: rowHeight, alignment: .center)
+    }
+
+    /// DSH (`dst`): same row layout as pi, fed by the session tail.
+    private var dshRow: some View {
+        HStack(spacing: 0) {
+            ringView(
+                isCompleted: dshIsCompleted,
+                spinning: dshSpinning,
+                iconSize: piIconSize,
+                icon: Image("DshIcon")
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundStyle(.white)
+                    .aspectRatio(contentMode: .fit)
+            )
+            .padding(.leading, ringLeadingInset)
+
+            rowModel(model: dshMonitor.model, color: .white.opacity(0.85))
+                .padding(.leading, 14)
+
+            rowThinking(level: dshMonitor.thinkingLevel, color: piThinkingColor(dshMonitor.thinkingLevel))
+                .padding(.leading, 6)
+
+            rowHitRate(dshMonitor.detail?.cacheHitRate)
+
+            elapsedOrCheckmark(
+                started: dshStarted,
+                frozenTime: dshFrozenTime,
+                showCheck: dshIsCompleted,
+                checkProgress: dshCheckProgress
             )
             .padding(.leading, 4)
         }
@@ -420,6 +482,23 @@ struct CLIStackActivityView: View {
     }
 
     // MARK: - pi accessors
+
+    private var dshIsCompleted: Bool {
+        if case .completed = dshMonitor.phase { return true }
+        return false
+    }
+
+    private var dshStarted: Date? {
+        if case .running(let started) = dshMonitor.phase { return started }
+        return nil
+    }
+
+    private var dshFrozenTime: String? {
+        if case .completed(let at, let startedAt) = dshMonitor.phase {
+            return PiLiveActivity.formatElapsed(at.timeIntervalSince(startedAt ?? at))
+        }
+        return nil
+    }
 
     private var piIsCompleted: Bool {
         if case .completed = piMonitor.phase { return true }

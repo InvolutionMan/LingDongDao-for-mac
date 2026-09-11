@@ -8023,6 +8023,20 @@ struct StatsSettings: View {
                 }
 
                 Section {
+                    Defaults.Toggle(key: .enableDshLiveActivity) {
+                        Text("Show DSH task activity")
+                    }
+                    .settingsHighlight(id: highlightID("DSH Live Activity"))
+                } header: {
+                    Text("DSH (dst)")
+                } footer: {
+                    Text("Show a timer-style indicator in the notch while the DSH CLI (`dst`) is executing a task. It reads DSH's own session file, so there is no hook to install.")
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+
+                Section {
                     if newAPIAccounts.isEmpty {
                         Text("Add one or more New API accounts to monitor their balance and usage.")
                             .foregroundStyle(.secondary)

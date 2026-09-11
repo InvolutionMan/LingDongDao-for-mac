@@ -1244,6 +1244,8 @@ extension Defaults.Keys {
     static let enablePiLiveActivity = Key<Bool>("enablePiLiveActivity", default: true)
     static let enableCodexLiveActivity = Key<Bool>("enableCodexLiveActivity", default: true)
     static let enableClaudeLiveActivity = Key<Bool>("enableClaudeLiveActivity", default: true)
+    /// The DSH CLI (`dst`) — no hook needed, its session file is the source.
+    static let enableDshLiveActivity = Key<Bool>("enableDshLiveActivity", default: true)
     /// Writes `~/.pi/agent/atoll-cli-debug.log` (CLI monitors + detail panel).
     static let enableCLIActivityDebugLog = Key<Bool>("enableCLIActivityDebugLog", default: false)
 

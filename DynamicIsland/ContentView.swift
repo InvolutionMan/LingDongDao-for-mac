@@ -45,6 +45,7 @@ struct ContentView: View {
     @ObservedObject var piSessionMonitor = PiSessionMonitor.shared
     @ObservedObject var codexSessionMonitor = CodexSessionMonitor.shared
     @ObservedObject var claudeSessionMonitor = ClaudeSessionMonitor.shared
+    @ObservedObject var dshSessionMonitor = DshSessionMonitor.shared
     @ObservedObject var reminderManager = ReminderLiveActivityManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var statsManager = StatsManager.shared
@@ -1098,6 +1099,7 @@ struct ContentView: View {
                       let activeCLICount = (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity] ? 1 : 0)
                           + (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity] ? 1 : 0)
                           + (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity] ? 1 : 0)
+                          + (dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity] ? 1 : 0)
 
                       if currentScreenExpansionType == .battery
                             && isBatteryHUDVisibleOnCurrentScreen
@@ -1147,6 +1149,11 @@ struct ContentView: View {
                           // Claude Code takes the same inline slot, after pi and
                           // Codex, before media and every other activity.
                           ClaudeLiveActivity()
+                              .transition(closedLiveActivitySwapTransition)
+                      } else if !isCurrentScreenExpansionVisible && vm.notchState == .closed && dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity] && !vm.hideOnClosed {
+                          // DSH (`dst`) takes the same inline slot, after the
+                          // three CLIs above, before media and the rest.
+                          DshLiveActivity()
                               .transition(closedLiveActivitySwapTransition)
                       } else if canShowMusicDuringExpansion && musicPairingEligible {
                           MusicLiveActivity(secondary: musicSecondary)
@@ -2175,7 +2182,7 @@ struct ContentView: View {
             coordinator.cliActivityDetailImmersive = false
             coordinator.showsCLIActivityDetail = true
             CLIActivityDebugLog.record(
-                "open-click armed detail panel: piTasks=\(piSessionMonitor.detail?.tasks.count ?? -1) codex=\(codexSessionMonitor.isActive ? 1 : 0) claude=\(claudeSessionMonitor.isActive ? 1 : 0)"
+                "open-click armed detail panel: piTasks=\(piSessionMonitor.detail?.tasks.count ?? -1) codex=\(codexSessionMonitor.isActive ? 1 : 0) claude=\(claudeSessionMonitor.isActive ? 1 : 0) dsh=\(dshSessionMonitor.isActive ? 1 : 0)"
             )
         }
         vm.open()
@@ -2394,6 +2401,7 @@ struct ContentView: View {
         (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity])
             || (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity])
             || (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity])
+            || (dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity])
     }
 
     /// True when the closed notch is currently showing a CLI live activity, so
@@ -2403,6 +2411,7 @@ struct ContentView: View {
         return (piSessionMonitor.isActive && Defaults[.enablePiLiveActivity])
             || (codexSessionMonitor.isActive && Defaults[.enableCodexLiveActivity])
             || (claudeSessionMonitor.isActive && Defaults[.enableClaudeLiveActivity])
+            || (dshSessionMonitor.isActive && Defaults[.enableDshLiveActivity])
     }
 
     /// Handle hover state changes with debouncing

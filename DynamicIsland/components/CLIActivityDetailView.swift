@@ -24,6 +24,7 @@ struct CLIActivityDetailView: View {
     @ObservedObject var piMonitor = PiSessionMonitor.shared
     @ObservedObject var codexMonitor = CodexSessionMonitor.shared
     @ObservedObject var claudeMonitor = ClaudeSessionMonitor.shared
+    @ObservedObject var dshMonitor = DshSessionMonitor.shared
 
     var body: some View {
         // No ScrollView: the island grows to fit every card (see
@@ -38,6 +39,9 @@ struct CLIActivityDetailView: View {
             }
             if claudeMonitor.isActive {
                 claudeSection
+            }
+            if dshMonitor.isActive {
+                dshSection
             }
         }
         .padding(.horizontal, 20)
@@ -58,7 +62,7 @@ struct CLIActivityDetailView: View {
         }
         .onAppear {
             CLIActivityDebugLog.record(
-                "CLI detail view appeared: pi=\(piMonitor.isActive ? 1 : 0) codex=\(codexMonitor.isActive ? 1 : 0) claude=\(claudeMonitor.isActive ? 1 : 0) piTasks=\(piMonitor.detail?.tasks.count ?? -1)"
+                "CLI detail view appeared: pi=\(piMonitor.isActive ? 1 : 0) codex=\(codexMonitor.isActive ? 1 : 0) claude=\(claudeMonitor.isActive ? 1 : 0) dsh=\(dshMonitor.isActive ? 1 : 0) piTasks=\(piMonitor.detail?.tasks.count ?? -1)"
             )
             logCurrentPiTask()
         }
@@ -143,6 +147,31 @@ struct CLIActivityDetailView: View {
         ) {
             activityLine(claudeMonitor.activity, isBusy: claudeMonitor.isBusy)
             usageStats(claudeMonitor.usage)
+        }
+    }
+
+    /// DSH (`dst`) reports the same shape as pi (`PiLiveDetail`), so it reuses
+    /// the pi card rendering — only the icon, title and palette differ.
+    private var dshSection: some View {
+        section(
+            title: "DSH",
+            icon: AnyView(
+                Image("DshIcon")
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundStyle(.white)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 15, height: 15)
+            ),
+            model: dshMonitor.model,
+            level: dshMonitor.thinkingLevel,
+            levelColor: piThinkingColor(dshMonitor.thinkingLevel),
+            started: dshStarted,
+            frozenTime: dshFrozenTime
+        ) {
+            if let detail = dshMonitor.detail {
+                detailStats(detail)
+            }
         }
     }
 
@@ -438,6 +467,18 @@ struct CLIActivityDetailView: View {
 
     private var codexFrozenTime: String? {
         if case .completed(let at, let startedAt) = codexMonitor.phase {
+            return PiLiveActivity.formatElapsed(at.timeIntervalSince(startedAt ?? at))
+        }
+        return nil
+    }
+
+    private var dshStarted: Date? {
+        if case .running(let started) = dshMonitor.phase { return started }
+        return nil
+    }
+
+    private var dshFrozenTime: String? {
+        if case .completed(let at, let startedAt) = dshMonitor.phase {
             return PiLiveActivity.formatElapsed(at.timeIntervalSince(startedAt ?? at))
         }
         return nil

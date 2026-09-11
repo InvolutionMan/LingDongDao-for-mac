@@ -273,3 +273,131 @@ final class PiSessionMonitorTests: XCTestCase {
         }
     }
 }
+
+// MARK: - DSH session tail
+
+/// DSH (`dst`) has no hook: `DshSessionTail` classifies its session JSONL the
+/// same way `PiSessionTail` classifies pi's, so these lock down that mapping.
+/// Records are built with `JSONSerialization` so the fixtures stay valid JSON.
+final class DshSessionMonitorTests: XCTestCase {
+
+    private func line(_ type: String, _ data: [String: Any]) -> String {
+        let object: [String: Any] = ["type": type, "data": data]
+        let json = try! JSONSerialization.data(withJSONObject: object)
+        return String(decoding: json, as: UTF8.self)
+    }
+
+    private func toolCall(_ id: String, _ name: String, _ arguments: [String: Any]) -> String {
+        let argumentsJSON = String(decoding: try! JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
+        return line("tool/call", ["turn": 1, "step": 1, "callId": id, "name": name, "arguments": argumentsJSON])
+    }
+
+    private func toolResult(_ id: String, isError: Bool = false) -> String {
+        line("tool/result", [
+            "turn": 1, "step": 1,
+            "message": [
+                "source": ["kind": "tool", "callId": id],
+                "content": [["type": "tool-result", "toolCallId": id, "isError": isError]],
+            ],
+        ])
+    }
+
+    private func assistantMessage(usage: [String: Any]) -> String {
+        line("assistant/message", [
+            "turn": 1, "step": 1,
+            "message": ["role": "assistant", "content": []],
+            "usage": usage,
+        ])
+    }
+
+    func testRunningTurnFromTail() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-flash", "reasoningEffort": "max"]),
+            toolCall("c1", "bash", ["command": "pwd && ls -la"]),
+            toolResult("c1"),
+            toolCall("c2", "read", ["path": "Sources/main.swift"]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, true)
+        XCTAssertEqual(sample?.model, "deepseek-v4-flash")
+        XCTAssertEqual(sample?.thinkingLevel, "max")
+        XCTAssertEqual(sample?.detail?.tasks.count, 2)
+        XCTAssertEqual(sample?.detail?.tasks.first?.state, .completed)
+        XCTAssertEqual(sample?.detail?.tasks.last?.state, .running)
+        XCTAssertEqual(sample?.detail?.toolName, "read")
+        XCTAssertEqual(sample?.detail?.toolTarget, "Sources/main.swift")
+        XCTAssertTrue(sample?.detail?.toolIsPending == true)
+    }
+
+    func testFinishedTurnCarriesUsage() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            toolCall("c1", "bash", ["command": "npm test"]),
+            toolResult("c1", isError: true),
+            assistantMessage(usage: [
+                "inputTokens": 9871, "outputTokens": 220, "totalTokens": 10091,
+                "cacheReadTokens": 1200, "reasoningTokens": 123,
+            ]),
+            line("turn/end", ["turn": 1, "reason": ["kind": "completed"]]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, false)
+        XCTAssertEqual(sample?.detail?.toolFailed, true)
+        XCTAssertEqual(sample?.detail?.totalTokens, 10091)
+        XCTAssertEqual(sample?.detail?.inputTokens, 9871)
+        XCTAssertEqual(sample?.detail?.outputTokens, 220)
+        XCTAssertEqual(sample?.detail?.cacheReadTokens, 1200)
+        XCTAssertEqual(sample?.detail?.cacheHitRate ?? 0, 1200.0 / (9871 + 1200), accuracy: 0.0001)
+        XCTAssertNil(sample?.detail?.errorMessage, "the turn itself completed")
+    }
+
+    func testAbortedTurnIsAFailure() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            line("turn/end", ["turn": 1, "reason": ["kind": "aborted", "reason": ["kind": "user"]]]),
+        ].joined(separator: "\n")
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, false)
+        XCTAssertNotNil(sample?.detail?.errorMessage)
+    }
+
+    func testWindowWithoutTurnBoundaryCountsAsRunning() {
+        // A long turn pushes `turn/start` out of the tail window, so the window
+        // sits inside a turn that is still running.
+        let tail = toolCall("c1", "bash", ["command": "sleep 30"])
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, true)
+        XCTAssertEqual(sample?.detail?.tasks.first?.state, .running)
+    }
+
+    func testAskUserQuestionBecomesConfirmation() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            toolCall("c1", "ask_user_question", ["question": "Which file should I edit?"]),
+        ].joined(separator: "\n")
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.detail?.confirmation, "Which file should I edit?")
+    }
+
+    func testToolTargetMapping() {
+        XCTAssertEqual(DshSessionTail.toolTarget(name: "bash", arguments: #"{"command":"npm run build"}"#), "npm run build")
+        XCTAssertEqual(DshSessionTail.toolTarget(name: "edit", arguments: #"{"path":"src/app.ts"}"#), "src/app.ts")
+        XCTAssertEqual(DshSessionTail.toolTarget(name: "web_fetch", arguments: #"{"url":"https://example.com"}"#), "https://example.com")
+        XCTAssertEqual(
+            DshSessionTail.toolTarget(
+                name: "todo_write",
+                arguments: #"{"todos":[{"content":"done bit","status":"completed"},{"content":"active bit","status":"in_progress"}]}"#
+            ),
+            "active bit"
+        )
+        XCTAssertNil(DshSessionTail.toolTarget(name: "bash", arguments: nil))
+    }
+
+    func testGarbageTailIsIgnored() {
+        XCTAssertNil(DshSessionTail.sample(fromTail: ""))
+        XCTAssertNil(DshSessionTail.sample(fromTail: "not json"))
+    }
+}

@@ -764,6 +764,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if Defaults[.enableClaudeLiveActivity] && !AppRuntimeEnvironment.isUITesting {
             ClaudeSessionMonitor.shared.startMonitoring()
         }
+
+        // Setup DSH CLI (`dst`) live activity monitor — tails its zstd session file.
+        if Defaults[.enableDshLiveActivity] && !AppRuntimeEnvironment.isUITesting {
+            DshSessionMonitor.shared.startMonitoring()
+        }
         
         // Setup Real-time Audio Waveform capture if enabled
         if Defaults[.enableRealTimeWaveform] {
@@ -948,6 +953,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ClaudeSessionMonitor.shared.startMonitoring()
             } else {
                 ClaudeSessionMonitor.shared.stopMonitoring()
+            }
+        }.store(in: &cancellables)
+
+        Defaults.publisher(.enableDshLiveActivity, options: []).sink { _ in
+            if Defaults[.enableDshLiveActivity] {
+                DshSessionMonitor.shared.startMonitoring()
+            } else {
+                DshSessionMonitor.shared.stopMonitoring()
             }
         }.store(in: &cancellables)
 

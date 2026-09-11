@@ -2412,13 +2412,20 @@ struct ContentView: View {
         case right
     }
 
-    /// The pill is centred in its window, so the window's midpoint is the
-    /// island's midpoint.
+    /// The split runs along the media divider when media is showing: everything
+    /// left of it belongs to the running task, everything right of it — the
+    /// album-art circle — belongs to playback. With no media on screen there is
+    /// no divider, so the island's midpoint splits the two halves instead.
     private func currentHoverSide() -> IslandHoverSide {
         guard let window = NSApplication.shared.windows.first(where: { $0 is DynamicIslandWindow }) else {
             return .right
         }
-        return NSEvent.mouseLocation.x < window.frame.midX ? .left : .right
+        // Pointer in the window's own coordinates (top-left origin), the same
+        // space the badge reports its divider in.
+        let mouse = NSEvent.mouseLocation
+        let pointerX = mouse.x - window.frame.minX
+        let splitX = coordinator.mediaDividerX ?? (window.frame.width / 2)
+        return pointerX < splitX ? .left : .right
     }
 
     /// True when the closed notch is currently showing a CLI live activity, so
@@ -2500,7 +2507,7 @@ struct ContentView: View {
                     self.coordinator.cliActivityDetailImmersive = wantsDetail
                     self.coordinator.showsCLIActivityDetail = wantsDetail
                     CLIActivityDebugLog.record(
-                        "hover-open firing: side=\(side == .left ? "left" : "right") cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
+                        "hover-open firing: side=\(side == .left ? "left" : "right") split=\(self.coordinator.mediaDividerX.map { String(format: "%.1f", $0) } ?? "mid") cliDetail=\(wantsDetail ? 1 : 0) piActive=\(self.piSessionMonitor.isActive ? 1 : 0) codexActive=\(self.codexSessionMonitor.isActive ? 1 : 0) claudeActive=\(self.claudeSessionMonitor.isActive ? 1 : 0) piTasks=\(self.piSessionMonitor.detail?.tasks.count ?? -1)"
                     )
                     self.openNotch()
                 }

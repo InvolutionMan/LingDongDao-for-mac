@@ -115,6 +115,15 @@ class DynamicIslandViewCoordinator: ObservableObject {
     /// keeps the tab bar so Home/Timer/Shelf stay reachable.
     @Published var cliActivityDetailImmersive: Bool = false
 
+    /// Where the media divider sits inside the island window (x, in the
+    /// window's own coordinates), reported by `MusicCornerBadge`. The hover split
+    /// uses it: left of the divider belongs to the running task, right of it —
+    /// the album-art side — belongs to playback. Nil while no media is showing.
+    /// Deliberately not `@Published`: it is only ever read inside a hover
+    /// decision, and publishing it from a geometry callback would re-render the
+    /// island on every layout pass.
+    var mediaDividerX: CGFloat?
+
     /// Measured height of the CLI detail panel's content, published by
     /// `CLIActivityDetailView` so the island can grow to fit every active agent
     /// card instead of scrolling them.

@@ -73,6 +73,14 @@ struct MusicCornerBadge: View {
                 .frame(width: 1, height: max(8, diameter * 0.7))
                 .padding(.leading, leadingGap)
                 .padding(.trailing, dividerGap)
+                .background(
+                    GeometryReader { geometry in
+                        let x = geometry.frame(in: .global).midX
+                        Color.clear
+                            .onAppear { DynamicIslandViewCoordinator.shared.mediaDividerX = x }
+                            .onChange(of: x) { _, newX in DynamicIslandViewCoordinator.shared.mediaDividerX = newX }
+                    }
+                )
 
             TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: isPaused)) { context in
                 SpinningAlbumArt(
@@ -88,6 +96,7 @@ struct MusicCornerBadge: View {
             )
         }
         .frame(width: Self.width(diameter: diameter, leadingGap: leadingGap, dividerGap: dividerGap))
+        .onDisappear { DynamicIslandViewCoordinator.shared.mediaDividerX = nil }
         .onChange(of: isPaused) { _, paused in
             if paused {
                 pauseBegan = Date()

@@ -602,11 +602,34 @@ final class DshSessionMonitorTests: XCTestCase {
         XCTAssertNil(memory.cached(for: "/sessions/b")?.model)
     }
 
-    func testDeepScanIsClaimedOncePerFile() {
+    func testDeepScanIsRateLimitedButRetried() {
         let memory = DshModelMemory()
-        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/a"))
-        XCTAssertFalse(memory.claimDeepScan(for: "/sessions/a"))
-        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/b"))
+        let start = Date(timeIntervalSince1970: 5_000_000)
+        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/a", now: start))
+        XCTAssertFalse(
+            memory.claimDeepScan(for: "/sessions/a", now: start.addingTimeInterval(5)),
+            "a second scan in the same moment would be wasteful"
+        )
+        XCTAssertTrue(
+            memory.claimDeepScan(for: "/sessions/a", now: start.addingTimeInterval(DshModelMemory.rescanInterval + 1)),
+            "a scan that found nothing must be retried, not given up on"
+        )
+        XCTAssertTrue(memory.claimDeepScan(for: "/sessions/b", now: start))
+    }
+
+    /// An unresolved file must not look like cached knowledge: that was the bug
+    /// where one missed scan left the island without a model name all session.
+    func testUnresolvedMemoryIsNotCached() {
+        let memory = DshModelMemory()
+        memory.store(file: "/sessions/a", model: nil, thinkingLevel: nil)
+        XCTAssertNil(memory.cached(for: "/sessions/a"), "nothing known yet, so keep looking")
+
+        memory.store(file: "/sessions/a", model: "deepseek-v4-flash", thinkingLevel: "max")
+        XCTAssertEqual(memory.cached(for: "/sessions/a")?.model, "deepseek-v4-flash")
+
+        // A later poll whose slice said nothing keeps the known value.
+        memory.store(file: "/sessions/a", model: nil, thinkingLevel: nil)
+        XCTAssertEqual(memory.cached(for: "/sessions/a")?.model, "deepseek-v4-flash")
     }
 
     func testDshSettingsDefaultModel() {

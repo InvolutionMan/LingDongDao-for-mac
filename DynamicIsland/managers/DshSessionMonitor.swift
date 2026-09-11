@@ -361,18 +361,24 @@ final class DshModelMemory {
         var thinkingLevel: String?
     }
 
+    /// How long to wait before walking a session file again after a scan that
+    /// found nothing (the model record may simply not be written yet).
+    static let rescanInterval: TimeInterval = 20
+
     private let lock = NSLock()
     private var file: String?
     private var model: String?
     private var thinkingLevel: String?
-    private var scanned: Set<String> = []
+    private var scanned: [String: Date] = [:]
 
     /// Last known values, but only for the same file — a new session must not
-    /// inherit the previous one's model.
+    /// inherit the previous one's model. A file whose model is still unknown has
+    /// nothing cached, so the next poll keeps looking instead of settling on nil
+    /// for the rest of the session.
     func cached(for file: String) -> Entry? {
         lock.lock()
         defer { lock.unlock() }
-        guard self.file == file else { return nil }
+        guard self.file == file, model != nil else { return nil }
         return Entry(model: model, thinkingLevel: thinkingLevel)
     }
 
@@ -390,14 +396,17 @@ final class DshModelMemory {
         if let thinkingLevel, !thinkingLevel.isEmpty { self.thinkingLevel = thinkingLevel }
     }
 
-    /// True exactly once per session file: the deep scan is expensive, so a file
-    /// is only ever walked back through once.
-    func claimDeepScan(for file: String) -> Bool {
+    /// True when this file may be walked back through now: the deep scan is
+    /// expensive, so it happens at most once per `rescanInterval` per file — but
+    /// it *does* happen again, because a miss must not be permanent.
+    func claimDeepScan(for file: String, now: Date = Date()) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !scanned.contains(file) else { return false }
+        if let last = scanned[file], now.timeIntervalSince(last) < Self.rescanInterval {
+            return false
+        }
         if scanned.count > 64 { scanned.removeAll() }
-        scanned.insert(file)
+        scanned[file] = now
         return true
     }
 
@@ -436,6 +445,10 @@ final class DshSessionMonitor: ObservableObject {
     /// completion checkmark).
     var isActive: Bool { phase != .idle }
 
+    /// Last `model · level · source` written to the debug log: the model has to
+    /// be re-reported when it comes back (or when it is still missing).
+    private var lastLoggedModel: String?
+
     private var pollingSource: DispatchSourceTimer?
     private var pendingIdleReturn: DispatchWorkItem?
     private let pollingQueue = DispatchQueue(label: "dynamicisland.dsh-session-monitor", qos: .utility)
@@ -471,10 +484,10 @@ final class DshSessionMonitor: ObservableObject {
 
     private func apply(_ sample: DshSessionSample) {
         let previousDetail = detail
-        if sample.model != model || sample.thinkingLevel != thinkingLevel {
-            CLIActivityDebugLog.record(
-                "dsh model: \(sample.model ?? "-") level=\(sample.thinkingLevel ?? "-") via \(sample.source ?? "-")"
-            )
+        let resolved = "\(sample.model ?? "-") level=\(sample.thinkingLevel ?? "-") via \(sample.source ?? "none")"
+        if sample.model != model || sample.thinkingLevel != thinkingLevel || resolved != lastLoggedModel {
+            lastLoggedModel = resolved
+            CLIActivityDebugLog.record("dsh model: \(resolved)")
         }
         model = sample.model
         thinkingLevel = sample.thinkingLevel
@@ -652,7 +665,7 @@ final class DshSessionMonitor: ObservableObject {
     /// The file is a concatenation of small independently-compressed frames (one
     /// per flush), and `zstd` refuses to start mid-frame, so this walks back to
     /// the last frame whose decompression produces JSON.
-    nonisolated private static func tailText(of file: URL, maxBytes: Int = 262_144) -> String? {
+    nonisolated private static func tailText(of file: URL, maxBytes: Int = 524_288) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
 

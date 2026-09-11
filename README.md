@@ -182,6 +182,7 @@ python3 hooks/cli/atoll-notch-status.test.py
 # App 单元测试
 xcodebuild test -scheme DynamicIsland -destination 'platform=macOS' \
   -only-testing:DynamicIslandTests/PiSessionMonitorTests \
+  -only-testing:DynamicIslandTests/DshSessionMonitorTests \
   -only-testing:DynamicIslandTests/CodexSessionMonitorTests \
   -only-testing:DynamicIslandTests/ClaudeSessionMonitorTests
 ```

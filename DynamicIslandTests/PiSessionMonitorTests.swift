@@ -409,6 +409,98 @@ final class DshSessionMonitorTests: XCTestCase {
         XCTAssertNil(DshSessionTail.sample(fromTail: "not json"))
     }
 
+    // MARK: - An open but idle `dst` must not light up the island
+
+    /// What `dst` writes when it is started and nothing has been asked yet.
+    func testIdleSessionIsNotRunning() {
+        let tail = [
+            line("session", ["version": 0, "cwd": "/tmp"]),
+            line("permission/preset", ["preset": "workspace-write"]),
+            line("sandbox/mode", ["mode": "workspace-write"]),
+            line("approval/policy", ["policy": "ask"]),
+            line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-flash", "reasoningEffort": "high"]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, false, "an opened, unused session is not a task")
+        XCTAssertNil(sample?.detail, "nothing to show, so the island stays hidden")
+        XCTAssertEqual(sample?.model, "deepseek-v4-flash", "the model is still known")
+        XCTAssertEqual(sample?.thinkingLevel, "high")
+    }
+
+    func testIdleSessionWithOnlyHeaderRecordsStaysIdle() {
+        let tail = [line("session", ["version": 0])].joined(separator: "\n")
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.busy, false)
+        XCTAssertNil(sample?.detail)
+    }
+
+    /// The whole path — zstd tail reader, freshness gate, model resolution —
+    /// against a synthetic sessions root.
+    func testPollOnceDistinguishesIdleFromRunningSession() throws {
+        try XCTSkipUnless(Self.dshProcessIsRunning(), "needs a running dst/dsh to pass the process gate")
+        let zstd = try XCTUnwrap(Self.zstdExecutable(), "zstd is required to write a session fixture")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atoll-dsh-poll-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-flash", "reasoningEffort": "high"])
+
+        try Self.writeSession(
+            in: root, named: "idle",
+            records: [line("session", ["version": 0]), model],
+            zstd: zstd
+        )
+        let idle = DshSessionMonitor.pollOnce(sessionsRoot: root, memory: DshModelMemory())
+        XCTAssertFalse(idle.busy, "just started, no task")
+        XCTAssertNil(idle.detail)
+
+        try Self.writeSession(
+            in: root, named: "running",
+            records: [line("session", ["version": 0]), model, line("turn/start", ["turn": 1]), toolCall("c1", "bash", ["command": "npm test"])],
+            zstd: zstd
+        )
+        let running = DshSessionMonitor.pollOnce(sessionsRoot: root, memory: DshModelMemory())
+        XCTAssertTrue(running.busy, "a tool call is in flight")
+        XCTAssertEqual(running.detail?.toolName, "bash")
+        XCTAssertEqual(running.model, "deepseek-v4-flash")
+    }
+
+    private static func dshProcessIsRunning() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-f", "bin/dsh"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
+    private static func zstdExecutable() -> URL? {
+        ["/opt/homebrew/bin/zstd", "/usr/local/bin/zstd", "/usr/bin/zstd"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Writes `<root>/<name>/session.jsonl.zstd`, compressed the way DSH does.
+    private static func writeSession(in root: URL, named name: String, records: [String], zstd: URL) throws {
+        let directory = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let plain = directory.appendingPathComponent("session.jsonl")
+        try records.joined(separator: "\n").appending("\n").write(to: plain, atomically: true, encoding: .utf8)
+
+        let compressed = directory.appendingPathComponent("session.jsonl.zstd")
+        let process = Process()
+        process.executableURL = zstd
+        process.arguments = ["-q", "-f", plain.path, "-o", compressed.path]
+        try process.run()
+        process.waitUntilExit()
+        try FileManager.default.removeItem(at: plain)
+        // A file nobody has touched in minutes is not "running now".
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: compressed.path)
+    }
+
     // MARK: - Cache hit formatting
 
     func testCacheHitPercentKeepsTwoDecimals() {

@@ -41,6 +41,17 @@ enum DshSessionTail {
         var failed: Bool
     }
 
+    /// Records that only exist once a turn is under way. Their absence — with no
+    /// `turn/start` / `turn/end` in the slice either — is what tells an idle
+    /// session (`dst` open, nothing asked yet) from a running one whose
+    /// `turn/start` has scrolled out of the tail.
+    private static let turnProgressTypes: Set<String> = [
+        "step/start", "step/end",
+        "assistant/chunk", "assistant/message",
+        "reasoning-chunks", "text-chunks", "tool-call-chunks",
+        "tool/call", "tool/result", "todo/write",
+    ]
+
     // MARK: - Record parsing
 
     private static func records(fromTail text: String) -> [[String: Any]] {
@@ -172,7 +183,7 @@ enum DshSessionTail {
             return type == "turn/start" || type == "turn/end"
         }
         var startIndex = 0
-        var busy: Bool? = true
+        var busy: Bool?
         if let boundaryIndex {
             let isStart = (records[boundaryIndex]["type"] as? String) == "turn/start"
             busy = isStart
@@ -184,6 +195,17 @@ enum DshSessionTail {
                 startIndex = records[..<boundaryIndex].lastIndex {
                     ($0["type"] as? String) == "turn/start"
                 } ?? boundaryIndex
+            }
+        } else {
+            // No turn boundary in the slice at all. Either the window sits in
+            // the middle of a turn that is still running, or `dst` has simply
+            // been opened and has not been asked anything yet — the session then
+            // holds nothing but `session` · `permission/preset` · `sandbox/mode`
+            // · `model/selection`. Only actual turn progress means "running", so
+            // an idle CLI does not keep the island on screen.
+            busy = records.contains { record in
+                guard let type = record["type"] as? String else { return false }
+                return Self.turnProgressTypes.contains(type)
             }
         }
         let current = records[startIndex...]
@@ -199,7 +221,11 @@ enum DshSessionTail {
         // instead, newest record wins.
         var modelInfo: (model: String, effort: String?)?
         for record in records {
-            if let info = DshSessionTail.modelInfo(from: record) { modelInfo = info }
+            // A newer record without an effort keeps the effort reported before
+            // it, exactly like `newestModelInfo(in:)` does for the deep scan.
+            if let info = DshSessionTail.modelInfo(from: record) {
+                modelInfo = (info.model, info.effort ?? modelInfo?.effort)
+            }
         }
 
         for record in current {
@@ -472,6 +498,9 @@ final class DshSessionMonitor: ObservableObject {
             pendingIdleReturn = nil
             let previousStart: Date?
             if case .running(let existing) = phase { previousStart = existing } else { previousStart = nil }
+            if previousStart == nil {
+                CLIActivityDebugLog.record("dsh phase: running (island shown)")
+            }
             withAnimation(.smooth) {
                 phase = .running(since: previousStart ?? Date())
             }
@@ -479,6 +508,7 @@ final class DshSessionMonitor: ObservableObject {
             withAnimation(.smooth(duration: 0.3)) {
                 phase = .completed(at: Date(), startedAt: startedAt)
             }
+            CLIActivityDebugLog.record("dsh phase: completed (nothing in flight in the session)")
             if let detail = sample.detail {
                 let succeeded = detail.errorMessage == nil && !detail.toolFailed
                 CLIFinishSound.play(
@@ -500,6 +530,7 @@ final class DshSessionMonitor: ObservableObject {
                 self?.phase = .idle
             }
             self?.pendingIdleReturn = nil
+            CLIActivityDebugLog.record("dsh phase: idle (island hidden)")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         pendingIdleReturn = work

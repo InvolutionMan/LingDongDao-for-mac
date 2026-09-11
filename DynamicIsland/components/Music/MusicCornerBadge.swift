@@ -51,7 +51,7 @@ struct MusicCornerBadge: View {
         dividerGap: CGFloat = 8,
         labelWidth: CGFloat = 0
     ) -> CGFloat {
-        leadingGap + 1 + dividerGap + diameter + labelWidth
+        leadingGap + 1 + dividerGap + diameter + (labelWidth > 0 ? TimerRingBadge.labelGap + labelWidth : 0)
     }
 
     /// The usual gap in front of the divider.
@@ -111,15 +111,13 @@ struct MusicCornerBadge: View {
                 Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
             )
         case .timer(let progress, let color, let label):
-            ZStack {
-                TimerRingBadge(
-                    progress: progress,
-                    color: color,
-                    diameter: diameter,
-                    label: label
-                )
-            }
-            .frame(width: diameter + TimerRingBadge.labelWidth(label), height: diameter)
+            TimerRingBadge(
+                progress: progress,
+                color: color,
+                diameter: diameter,
+                label: label
+            )
+            .frame(width: TimerRingBadge.width(diameter: diameter, label: label), height: diameter)
         }
     }
 

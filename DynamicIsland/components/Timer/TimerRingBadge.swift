@@ -22,31 +22,40 @@ struct TimerRingBadge: View {
     private var clampedProgress: CGFloat { CGFloat(min(max(progress, 0), 1)) }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.white.opacity(0.15), lineWidth: strokeWidth)
-            Circle()
-                .trim(from: 0, to: clampedProgress)
-                .stroke(color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .frame(width: diameter, height: diameter)
-        .animation(.smooth(duration: 0.3), value: clampedProgress)
+        // Side by side, horizontally: the digits are readable only if they sit
+        // clear of the ring, never on top of it.
+        HStack(spacing: label == nil ? 0 : Self.labelGap) {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.15), lineWidth: strokeWidth)
+                Circle()
+                    .trim(from: 0, to: clampedProgress)
+                    .stroke(color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: diameter, height: diameter)
+            .animation(.smooth(duration: 0.3), value: clampedProgress)
 
-        if let label {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.leading, Self.labelGap)
-                .contentTransition(.numericText())
-                .animation(.smooth(duration: 0.25), value: label)
+            if let label {
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .contentTransition(.numericText())
+                    .animation(.smooth(duration: 0.25), value: label)
+            }
         }
     }
 
     /// Gap between the ring and its countdown.
     static let labelGap: CGFloat = 6
+
+    /// Total width the ring plus its countdown occupies.
+    static func width(diameter: CGFloat, label: String?) -> CGFloat {
+        let text = labelWidth(label)
+        return text > 0 ? diameter + labelGap + text : diameter
+    }
 
     /// Measured width of a label, so callers can reserve it exactly.
     static func labelWidth(_ text: String?) -> CGFloat {

@@ -197,7 +197,17 @@ final class MusicCornerBadgeTests: XCTestCase {
         XCTAssertGreaterThan(label, 0)
         XCTAssertEqual(
             MusicCornerBadge.width(diameter: diameter, labelWidth: label),
-            MusicCornerBadge.width(diameter: diameter) + label,
+            MusicCornerBadge.width(diameter: diameter) + TimerRingBadge.labelGap + label,
+            accuracy: 0.001,
+            "the digits sit beside the ring, so the gap counts too"
+        )
+        XCTAssertEqual(
+            TimerRingBadge.width(diameter: diameter, label: nil), diameter,
+            "no countdown, no extra room"
+        )
+        XCTAssertEqual(
+            TimerRingBadge.width(diameter: diameter, label: "12:34"),
+            diameter + TimerRingBadge.labelGap + label,
             accuracy: 0.001
         )
         XCTAssertEqual(TimerRingBadge.labelWidth(nil), 0)
@@ -206,6 +216,40 @@ final class MusicCornerBadgeTests: XCTestCase {
             TimerRingBadge.labelWidth("12:34"),
             "a longer countdown needs more room"
         )
+    }
+
+    /// The countdown sits beside the ring, horizontally — the bug this guards is
+    /// digits drawn on top of the ring (they were centred in a ZStack).
+    @MainActor
+    func testCountdownStandsClearOfTheRing() throws {
+        let scale: CGFloat = 4
+        let diameter: CGFloat = 22
+        let label = "12:34"
+        let badge = TimerRingBadge(progress: 0.5, color: .orange, diameter: diameter, label: label)
+        let bitmap = try Self.render(badge.background(Color.black), scale: scale)
+
+        var litColumns: [Int] = []
+        for x in 0..<bitmap.pixelsWide {
+            var lit = 0
+            for y in 0..<bitmap.pixelsHigh {
+                if let c = bitmap.colorAt(x: x, y: y), c.brightnessComponent > 0.12 { lit += 1 }
+            }
+            if lit > 0 { litColumns.append(x) }
+        }
+        let firstText = try XCTUnwrap(litColumns.first { CGFloat($0) / scale > diameter + 2.5 },
+                                      "the countdown was not drawn beside the ring")
+        // Everything between the ring's right edge — the stroke is centred on
+        // the circle, so allow for its width plus antialiasing — and the digits
+        // must be empty, or they are overlapping.
+        let ringOuterEdge = diameter + 2.5
+        for x in Int(ringOuterEdge * scale)..<firstText {
+            var lit = 0
+            for y in 0..<bitmap.pixelsHigh {
+                if let c = bitmap.colorAt(x: x, y: y), c.brightnessComponent > 0.12 { lit += 1 }
+            }
+            XCTAssertEqual(lit, 0, "pixels at \(Double(x)/scale)pt sit on the ring's edge")
+        }
+        XCTAssertGreaterThanOrEqual(CGFloat(firstText) / scale - diameter, TimerRingBadge.labelGap - 1)
     }
 
     /// The ring is the timer's album art: a progress arc, nothing else.

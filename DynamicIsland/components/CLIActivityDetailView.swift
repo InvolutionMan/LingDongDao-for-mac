@@ -156,10 +156,9 @@ struct CLIActivityDetailView: View {
         section(
             title: "DSH",
             icon: AnyView(
+                // The DeepSeek whale keeps its own colours — no template tint.
                 Image("DshIcon")
                     .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.white)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 15, height: 15)
             ),

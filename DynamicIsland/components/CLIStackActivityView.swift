@@ -273,8 +273,6 @@ struct CLIStackActivityView: View {
                 iconSize: piIconSize,
                 icon: Image("DshIcon")
                     .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.white)
                     .aspectRatio(contentMode: .fit)
             )
             .padding(.leading, ringLeadingInset)

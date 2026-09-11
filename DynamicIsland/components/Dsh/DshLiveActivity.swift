@@ -353,10 +353,9 @@ struct DshLiveActivity: View {
                     .transition(.opacity)
             }
 
+            // The DeepSeek whale keeps its own colours — no template tint.
             Image("DshIcon")
                 .resizable()
-                .renderingMode(.template)
-                .foregroundStyle(.white)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: iconSize, height: iconSize)
         }

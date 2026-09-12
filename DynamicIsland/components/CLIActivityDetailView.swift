@@ -125,6 +125,9 @@ struct CLIActivityDetailView: View {
             started: codexStarted,
             frozenTime: codexFrozenTime
         ) {
+            if let goal = codexMonitor.activity?.goal {
+                goalRow(goal)
+            }
             activityLine(codexMonitor.activity, isBusy: codexMonitor.isBusy)
             usageStats(codexMonitor.usage)
         }
@@ -145,6 +148,9 @@ struct CLIActivityDetailView: View {
             started: claudeStarted,
             frozenTime: claudeFrozenTime
         ) {
+            if let goal = claudeMonitor.activity?.goal {
+                goalRow(goal)
+            }
             activityLine(claudeMonitor.activity, isBusy: claudeMonitor.isBusy)
             usageStats(claudeMonitor.usage)
         }
@@ -235,9 +241,30 @@ struct CLIActivityDetailView: View {
         )
     }
 
+    /// The request that started the turn: the card's first line, so the panel
+    /// answers "what is this for?", not only "what is it running?".
+    @ViewBuilder
+    private func goalRow(_ goal: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Goal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+            Text(goal)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .help(goal)
+        }
+    }
+
     @ViewBuilder
     private func detailStats(_ detail: PiLiveDetail) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let goal = detail.goal {
+                goalRow(goal)
+            }
+
             // Only the task pi is executing right now — completed and queued
             // calls are deliberately not listed. A provider failure takes the
             // line instead, because that is why nothing is running.

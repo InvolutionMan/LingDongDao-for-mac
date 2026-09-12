@@ -20,6 +20,9 @@ struct CLIToolActivity: Equatable {
         let state: State
     }
 
+    /// The user's request for this turn, from the hook's status file, capped
+    /// like pi's. Shown as the card's first line.
+    var goal: String?
     var toolName: String?
     var toolTarget: String?
     var toolIsPending: Bool = false
@@ -45,7 +48,7 @@ struct CLIToolActivity: Equatable {
     }
 
     var isEmpty: Bool {
-        toolName == nil && tasks.isEmpty && !toolFailed && errorMessage == nil
+        goal == nil && toolName == nil && tasks.isEmpty && !toolFailed && errorMessage == nil
             && confirmation == nil
     }
 
@@ -56,6 +59,10 @@ struct CLIToolActivity: Equatable {
     /// when the hook reported neither.
     static func from(status obj: [String: Any]) -> CLIToolActivity? {
         var activity = CLIToolActivity()
+
+        if let goal = obj["goal"] as? String, !goal.isEmpty {
+            activity.goal = goal
+        }
 
         if let tool = obj["tool"] as? [String: Any] {
             activity.toolName = tool["name"] as? String

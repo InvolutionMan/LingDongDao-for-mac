@@ -57,6 +57,19 @@ final class ClaudeSessionMonitorTests: XCTestCase {
         """
     }
 
+    func testGoalFromHookStatus() {
+        let activity = CLIToolActivity.from(status: [
+            "busy": true,
+            "goal": "把设置界面改成中文",
+            "tool": ["name": "bash", "target": "ls", "pending": true],
+        ])
+        XCTAssertEqual(activity?.goal, "把设置界面改成中文")
+
+        // A goal on its own is still worth a card.
+        let goalOnly = CLIToolActivity.from(status: ["busy": true, "goal": "只是目标"])
+        XCTAssertEqual(goalOnly?.goal, "只是目标")
+    }
+
     func testAssistantToolUseTailIsBusy() {
         let tail = promptLine() + "\n" + assistantLine(stopReason: "tool_use") + "\n"
         XCTAssertEqual(ClaudeSessionTail.state(fromTail: tail), .busy)

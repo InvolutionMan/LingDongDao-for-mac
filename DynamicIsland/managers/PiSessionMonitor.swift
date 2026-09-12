@@ -35,6 +35,10 @@ struct PiTaskItem: Equatable, Identifiable {
 /// Live detail shown in the hover-expanded pi activity: what pi is reading or
 /// running right now, the turn's task list, and the latest response's usage.
 struct PiLiveDetail: Equatable {
+    /// What the user asked for — the request that started this turn. Shown at
+    /// the top of the card so the panel says what the task is *for*, not just
+    /// which tool is running.
+    var goal: String?
     var toolName: String?
     var toolTarget: String?
     /// True when the tool call has no result yet (still executing).
@@ -57,9 +61,13 @@ struct PiLiveDetail: Equatable {
     var confirmation: String?
 
     var isEmpty: Bool {
-        toolName == nil && totalTokens == nil && cacheHitRate == nil && tasks.isEmpty
+        goal == nil && toolName == nil && totalTokens == nil && cacheHitRate == nil && tasks.isEmpty
             && errorMessage == nil && !toolFailed && confirmation == nil
     }
+
+    /// Longest goal kept from a session, so a pasted wall of text cannot bloat
+    /// the panel or the monitor's memory.
+    static let goalLimit = 400
 }
 
 /// Classifies the tail of a pi session JSONL into a `PiTurnState`.
@@ -140,12 +148,28 @@ enum PiSessionTail {
         return nil
     }
 
+    /// The plain text of a user message, or nil when it carries none (tool
+    /// results and system reminders also arrive as user messages).
+    static func userText(in message: [String: Any]) -> String? {
+        guard let content = message["content"] else {
+            return (message["text"] as? String)?.trimmedForGoal
+        }
+        if let text = content as? String { return text.trimmedForGoal }
+        guard let blocks = content as? [[String: Any]] else { return nil }
+        let joined = blocks
+            .filter { ($0["type"] as? String) == "text" }
+            .compactMap { $0["text"] as? String }
+            .joined(separator: "\n")
+        return joined.trimmedForGoal
+    }
+
     /// Live detail for the hover-expanded panel: the tool pi is running (or the
     /// last one it ran), its target, and the latest response's token usage.
     static func detail(fromTail text: String) -> PiLiveDetail? {
         var calls: [(id: String?, name: String?, target: String?)] = []
         var completedIDs = Set<String>()
         var usage: [String: Any]?
+        var goal: String?
 
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             // Cheap pre-filter: most records are text/thinking and carry none
@@ -162,6 +186,9 @@ enum PiSessionTail {
                 // A new prompt starts a new turn: the task list is per-turn.
                 calls.removeAll()
                 completedIDs.removeAll()
+                if let text = userText(in: message) {
+                    goal = text
+                }
             case "assistant":
                 if let latestUsage = message["usage"] as? [String: Any] {
                     usage = latestUsage
@@ -194,6 +221,7 @@ enum PiSessionTail {
         let chosen = pending ?? calls.last
 
         var detail = PiLiveDetail()
+        detail.goal = goal
         detail.toolName = chosen?.name
         detail.toolTarget = chosen?.target
         detail.toolIsPending = pending != nil
@@ -657,5 +685,17 @@ final class PiSessionMonitor: ObservableObject {
         let byteCount = min(maxBytes, size)
         guard byteCount > 0, (try? handle.seek(toOffset: UInt64(size - byteCount))) != nil else { return nil }
         return try? handle.read(upToCount: byteCount)
+    }
+}
+
+extension String {
+    /// Trims a captured user request and caps it, so a pasted wall of text does
+    /// not travel through the monitors or the panel.
+    var trimmedForGoal: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.count > PiLiveDetail.goalLimit
+            ? String(trimmed.prefix(PiLiveDetail.goalLimit)) + "…"
+            : trimmed
     }
 }

@@ -132,6 +132,18 @@ enum DshSessionTail {
         }
     }
 
+    /// The plain text of a `user/message` payload, capped like pi's.
+    static func userText(in data: [String: Any]) -> String? {
+        guard let blocks = data["content"] as? [[String: Any]] else {
+            return (data["text"] as? String)?.trimmedForGoal
+        }
+        let joined = blocks
+            .filter { ($0["type"] as? String) == "text" }
+            .compactMap { $0["text"] as? String }
+            .joined(separator: "\n")
+        return joined.trimmedForGoal
+    }
+
     /// Same, for a single JSONL line (used when scanning much further back).
     static func modelInfo(fromLine line: String) -> (model: String, effort: String?)? {
         guard let data = line.data(using: .utf8),
@@ -211,6 +223,7 @@ enum DshSessionTail {
         let current = records[startIndex...]
         var endReason: String?
         var failureMessage: String?
+        var goal: String?
         var latestUsage: CLIUsage?
         var calls: [ToolCall] = []
         var pendingTodos: String?
@@ -239,6 +252,13 @@ enum DshSessionTail {
                 busy = false
                 if let reason = data["reason"] as? [String: Any] {
                     endReason = reason["kind"] as? String
+                }
+            case "user/message":
+                // DSH also delivers tool results and system notes as user
+                // messages; only what the user actually typed is the goal.
+                let source = data["source"] as? [String: Any]
+                if (source?["kind"] as? String) == "user" {
+                    goal = DshSessionTail.userText(in: data) ?? goal
                 }
             case "tool/call":
                 let id = data["callId"] as? String ?? UUID().uuidString
@@ -308,6 +328,7 @@ enum DshSessionTail {
         }
 
         var detail = PiLiveDetail()
+        detail.goal = goal
         detail.tasks = tasks
         detail.toolFailed = calls.last?.failed ?? false
         detail.inputTokens = latestUsage?.inputTokens

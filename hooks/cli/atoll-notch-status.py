@@ -166,6 +166,8 @@ def write_status(state: dict) -> None:
         }
     if tasks:
         payload["tasks"] = tasks[-MAX_TASKS:]
+    if state.get("goal"):
+        payload["goal"] = state["goal"]
     if state.get("failed"):
         payload["failed"] = True
     if state.get("confirm"):
@@ -259,6 +261,20 @@ def transcript_error(path: object) -> str | None:
 CONFIRM_HINTS = ("permission", "waiting for your input", "needs your", "approve", "confirm", "allow")
 
 
+# Longest request kept in the status file.
+GOAL_LIMIT = 400
+
+
+def goal_from(event: dict) -> str | None:
+    """The user's own request (UserPromptSubmit) or the transcript's, capped."""
+    for key in ("prompt", "user_prompt", "message", "title"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            return text if len(text) <= GOAL_LIMIT else text[:GOAL_LIMIT] + "…"
+    return None
+
+
 def confirmation_label(event: dict) -> str | None:
     """What the CLI is waiting for, or nil when it is not waiting on the user."""
     hook = normalize_event(str(event.get("hook_event_name") or ""))
@@ -288,8 +304,11 @@ def handle(event: dict) -> dict:
         state = {"busy": False, "since": now_ms, "tasks": []}
 
     elif hook == "userpromptsubmit":
-        # A new prompt starts a fresh task list.
+        # A new prompt starts a fresh task list, and it *is* the goal.
         state = {"busy": True, "since": now_ms, "tasks": []}
+        goal = goal_from(event)
+        if goal:
+            state["goal"] = goal
 
     elif hook in ("permissionrequest", "notification"):
         label = confirmation_label(event)

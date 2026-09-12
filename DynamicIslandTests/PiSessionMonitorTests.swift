@@ -241,7 +241,13 @@ final class PiSessionMonitorTests: XCTestCase {
 
     func testDetailNilWhenNothingKnown() {
         XCTAssertNil(PiSessionTail.detail(fromTail: ""))
-        XCTAssertNil(PiSessionTail.detail(fromTail: userLine() + "\n"))
+        // A prompt on its own is now worth a card: the goal is what the panel
+        // leads with, even before any tool has run.
+        let promptOnly = PiSessionTail.detail(fromTail: userLine() + "\n")
+        XCTAssertEqual(promptOnly?.goal, "hi")
+        XCTAssertNil(promptOnly?.toolName)
+        XCTAssertTrue(promptOnly?.tasks.isEmpty == true)
+        XCTAssertNil(promptOnly?.totalTokens)
     }
 
     func testFormatTokens() {
@@ -501,7 +507,74 @@ final class DshSessionMonitorTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: compressed.path)
     }
 
+    // MARK: - The user's request as the card's goal
+
+    func testDshGoalComesFromTheUsersOwnMessage() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            line("user/message", [
+                "role": "user",
+                "content": [["type": "text", "text": "把计时器也做成小圆圈"]],
+                "source": ["kind": "user"],
+            ]),
+            toolCall("c1", "bash", ["command": "ls"]),
+        ].joined(separator: "\n")
+
+        let sample = DshSessionTail.sample(fromTail: tail)
+        XCTAssertEqual(sample?.detail?.goal, "把计时器也做成小圆圈")
+    }
+
+    /// Tool results and system notes also arrive as user messages; only what the
+    /// user typed counts.
+    func testDshIgnoresNonUserMessagesAsGoal() {
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            line("user/message", [
+                "role": "user",
+                "content": [["type": "text", "text": "tool output"]],
+                "source": ["kind": "tool"],
+            ]),
+            toolCall("c1", "bash", ["command": "ls"]),
+        ].joined(separator: "\n")
+
+        XCTAssertNil(DshSessionTail.sample(fromTail: tail)?.detail?.goal)
+    }
+
+    func testGoalIsCapped() {
+        let long = String(repeating: "长", count: PiLiveDetail.goalLimit + 50)
+        let tail = [
+            line("turn/start", ["turn": 1]),
+            line("user/message", [
+                "role": "user",
+                "content": [["type": "text", "text": long]],
+                "source": ["kind": "user"],
+            ]),
+            toolCall("c1", "bash", ["command": "ls"]),
+        ].joined(separator: "\n")
+
+        let goal = DshSessionTail.sample(fromTail: tail)?.detail?.goal
+        XCTAssertEqual(goal?.count, PiLiveDetail.goalLimit + 1, "capped, plus the ellipsis")
+        XCTAssertTrue(goal?.hasSuffix("…") == true)
+    }
+
+    func testGoalAloneKeepsTheCard() {
+        var detail = PiLiveDetail()
+        detail.goal = "只想知道目标"
+        XCTAssertFalse(detail.isEmpty, "a card with a goal is worth showing")
+    }
+
     // MARK: - Cache hit formatting
+
+    /// pi's session tail carries the prompt as a user message.
+    func testPiGoalFromSessionTail() {
+        let tail = [
+            #"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"修一下登录页的样式"}]}}"#,
+            #"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"t1","name":"read","arguments":{"path":"src/login.tsx"}}],"usage":{"input":10,"output":2,"cacheRead":0}}}"#,
+        ].joined(separator: "\n")
+
+        let detail = PiSessionTail.detail(fromTail: tail)
+        XCTAssertEqual(detail?.goal, "修一下登录页的样式")
+    }
 
     func testCacheHitPercentKeepsTwoDecimals() {
         XCTAssertEqual(CLIUsage.percentText(1.0), "100.00%")

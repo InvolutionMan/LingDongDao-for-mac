@@ -62,6 +62,7 @@ def main() -> int:
         status = claude.fire({"hook_event_name": "UserPromptSubmit", "prompt": "fix the bug"})
         check("busy", status["busy"] is True)
         check("no tool yet", "tool" not in status)
+        check("the prompt is the goal", status.get("goal") == "fix the bug", json.dumps(status))
 
         status = claude.fire(
             {
@@ -194,6 +195,23 @@ def main() -> int:
         )
         check("update_plan -> todo", status["tool"]["name"] == "todo", json.dumps(status))
         check("in-progress step", status["tool"]["target"] == "test it", json.dumps(status))
+
+        print("the goal survives later tool events, and is capped")
+        status = codex.fire(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_use_id": "c9",
+                "tool_input": {"command": "ls"},
+            }
+        )
+        codex_prompt = "run the tests"
+        check("goal kept after a tool event", status.get("goal") == codex_prompt, json.dumps(status))
+
+        long_prompt = "x" * 900
+        status = claude.fire({"hook_event_name": "UserPromptSubmit", "prompt": long_prompt})
+        goal = status.get("goal") or ""
+        check("long goal capped", len(goal) == 401 and goal.endswith("…"), f"len={len(goal)}")
 
         print("each CLI keeps its own files")
         check("claude status exists", (claude.dir / "notch-status.json").exists())

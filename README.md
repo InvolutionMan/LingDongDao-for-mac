@@ -24,6 +24,22 @@
 - **计时**：运行中向上计时，结束瞬间换成对勾（出错时换成红色警告三角形）
 - 开始/结束都有和系统计时器一致的过渡动画
 
+### 展开卡片会先说明「目标」
+
+展开的 CLI 卡片（悬停/点击灵动岛）现在**第一行显示你这次的请求**（中文界面显示「目标」），下面才是正在跑的工具、缓存命中与 token 用量——这样一眼能看出这个任务*是为了什么*，而不只是它在读哪个文件。
+
+```
+[π] Pi  deepseek-v4.1-…  high  01:42
+目标  把计时器也做成小圆圈，倒计时显示在右边
+Running  [bash]  npm test  ●
+Cache hit 99.97%   Tokens 384.3K   in / out 441 / 1.5K   cached 382.6K
+```
+
+- **pi**：从会话 JSONL 里最后一条 `role: "user"` 的 message 取（`PiSessionTail`）
+- **DSH（`dst`）**：从会话里最后一条 `user/message` 且 `source.kind == "user"` 取（工具结果/系统提示也以 user/message 形式出现，会被排除）
+- **Claude Code / Codex**：`hooks/cli/atoll-notch-status.py` 在 `UserPromptSubmit` 时把 `prompt` 记进状态文件，之后的工具事件继续携带；已安装的 hook 需要重跑一次安装脚本才带这条逻辑
+- 请求文本统一截断到 400 字符 + 省略号，避免粘贴大段内容撑爆面板；只有目标、还没有任何工具活动时也会显示卡片（"暂无工具活动"）
+
 ### 空闲时自动隐藏（可在设置里开关）
 
 设置 → Media 里的 **「Hide the island when it has nothing to show」**：打开后，收起状态在**没有任何可显示内容**时自动让位，一旦有下列任一活动立刻回来，不需要再手动切回来：

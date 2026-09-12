@@ -3092,6 +3092,7 @@ struct Media: View {
     @Default(.mediaController) var mediaController
     @ObservedObject var coordinator = DynamicIslandViewCoordinator.shared
     @Default(.hideNotchOption) var hideNotchOption
+    @Default(.hideIslandWhenIdle) var hideIslandWhenIdle
     @Default(.enableSneakPeek) private var enableSneakPeek
     @Default(.sneakPeekStyles) var sneakPeekStyles
     @Default(.enableMinimalisticUI) var enableMinimalisticUI
@@ -3544,6 +3545,18 @@ struct Media: View {
             .onChange(of: hideNotchOption) {
                 Defaults[.enableFullscreenMediaDetection] = hideNotchOption != .never
             }
+            Toggle(isOn: $hideIslandWhenIdle) {
+                HStack {
+                    Text("Hide the island when it has nothing to show")
+                    customBadge(text: "Beta")
+                }
+            }
+            .toggleStyle(.switch)
+            Text("With this on, the closed island steps aside while there is nothing to show — no agent, no media, no timer, no reminder. Anything the island supports brings it straight back, so it is out of the way exactly when it has nothing to say.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text("The island hides whenever a window covers the system menu bar — native fullscreen apps, games, and browser video fullscreen (YouTube, Bilibili) alike. A zoomed window that stops below the menu bar never hides it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

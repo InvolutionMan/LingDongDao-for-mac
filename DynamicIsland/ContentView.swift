@@ -857,6 +857,10 @@ struct ContentView: View {
         ZStack(alignment: .top) {
             configuredMainLayout
         }
+        .onAppear { vm.setHideForIdle(islandHidesForIdle) }
+        .onChange(of: islandHidesForIdle) { _, hides in
+            vm.setHideForIdle(hides)
+        }
         .frame(
             maxWidth: (dynamicNotchSize.width + (vm.notchState == .open ? 24 : 0) + (isDynamicIslandMode ? dynamicIslandShadowInset * 2 : 0)).rounded(),
             maxHeight: (dynamicNotchSize.height + (vm.notchState == .open ? 12 : 0) + (isIslandMode ? 0 : notchTopScreenBleedAmount) + (isDynamicIslandMode ? dynamicIslandTopOffset + dynamicIslandShadowInset * 2 : currentShadowPadding)).rounded(),
@@ -2416,6 +2420,39 @@ struct ContentView: View {
 
     /// True while the open island is showing the CLI activity detail instead
     /// of a tab: the detail panel, not the Home/Timer/Shelf/Terminal tab bar.
+    /// Every live activity the closed island knows about, in the form the
+    /// auto-hide rule reads.
+    private var islandActivitySignals: IslandActivitySignals {
+        IslandActivitySignals(
+            cliAgent: anyCLIActivityActive,
+            media: musicLiveActivityShows && hasActiveMusicSnapshotForClosedPairing,
+            timer: timerManager.isTimerActive && coordinator.timerLiveActivityEnabled,
+            reminder: reminderManager.isActive && enableReminderLiveActivity,
+            recording: recordingManager.isRecording && Defaults[.enableScreenRecordingDetection] && Defaults[.showRecordingIndicator],
+            download: downloadManager.isDownloading && Defaults[.enableDownloadListener],
+            focus: doNotDisturbManager.isDoNotDisturbActive && Defaults[.enableDoNotDisturbDetection] && Defaults[.showDoNotDisturbIndicator],
+            privacyIndicator: privacyManager.hasAnyIndicator && (Defaults[.enableCameraDetection] || Defaults[.enableMicrophoneDetection]),
+            sneakPeek: coordinator.sneakPeek.show || isSneakPeekVisibleOnCurrentScreen,
+            shelf: !shelfState.isEmpty,
+            capsLock: capsLockManager.isCapsLockActive && Defaults[.enableCapsLockIndicator]
+        )
+    }
+
+    /// True while the auto-hide setting wants the island out of the way.
+    private var islandHidesForIdle: Bool {
+        islandShouldHide(
+            hideOnClosed: false,
+            autoHideWhenIdle: Defaults[.hideIslandWhenIdle],
+            signals: islandActivitySignals
+        )
+    }
+
+    /// The media island is only "something to show" when the user's media
+    /// settings would actually let it through.
+    private var musicLiveActivityShows: Bool {
+        coordinator.musicLiveActivityEnabled && closedMusicContentEnabled && !lockScreenManager.isLocked
+    }
+
     private var showsCLIActivityDetailPanel: Bool {
         coordinator.showsCLIActivityDetail && anyCLIActivityActive
     }

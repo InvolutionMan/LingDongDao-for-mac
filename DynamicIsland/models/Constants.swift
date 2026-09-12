@@ -1189,6 +1189,11 @@ extension Defaults.Keys {
     /// (native fullscreen, browser video fullscreen, games); `.nowPlayingOnly`
     /// restricts that to the app that is currently playing media.
     static let hideNotchOption = Key<HideNotchOption>("hideNotchOption", default: .always)
+
+    /// Keep the closed island out of the way while it has nothing of its own to
+    /// show (no agent, no media, no timer…), and bring it back the moment one of
+    /// them needs it.
+    static let hideIslandWhenIdle = Key<Bool>("hideIslandWhenIdle", default: false)
     
     // MARK: Wobble Animation
     static let enableWobbleAnimation = Key<Bool>("enableWobbleAnimation", default: false)

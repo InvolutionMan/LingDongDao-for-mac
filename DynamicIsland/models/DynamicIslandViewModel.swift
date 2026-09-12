@@ -381,6 +381,29 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
         }
     }
     
+    /// Fullscreen menu-bar coverage, as reported by the detector below.
+    private var fullscreenHideRequested: Bool = false
+
+    /// The auto-hide setting's verdict: true while the island has nothing to
+    /// show. Reported by the view, which is where the live activities are known.
+    private var idleHideRequested: Bool = false
+    private var idleHideObserver: AnyCancellable?
+
+    /// Called with `Defaults[.hideIslandWhenIdle] && !islandHasSomethingToShow(…)`.
+    func setHideForIdle(_ hide: Bool) {
+        guard idleHideRequested != hide else { return }
+        idleHideRequested = hide
+        recomputeHideOnClosed()
+    }
+
+    private func recomputeHideOnClosed() {
+        let shouldHide = fullscreenHideRequested || idleHideRequested
+        guard hideOnClosed != shouldHide else { return }
+        withAnimation(.smooth) {
+            hideOnClosed = shouldHide
+        }
+    }
+
     private func setupDetectorObserver() {
         // 1) Publisher for the user’s fullscreen detection setting
         let enabledPublisher = Defaults
@@ -404,9 +427,9 @@ class DynamicIslandViewModel: NSObject, ObservableObject {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] shouldHide in
-                withAnimation(.smooth) {
-                    self?.hideOnClosed = shouldHide
-                }
+                guard let self else { return }
+                self.fullscreenHideRequested = shouldHide
+                self.recomputeHideOnClosed()
             }
             .store(in: &cancellables)
     }

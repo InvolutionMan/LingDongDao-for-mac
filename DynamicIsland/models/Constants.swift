@@ -1246,6 +1246,7 @@ extension Defaults.Keys {
     static let enableAntigravityProvider = Key<Bool>("enableAntigravityProvider", default: true)
     static let enableNewAPIProvider = Key<Bool>("enableNewAPIProvider", default: false)
     static let enablePiProvider = Key<Bool>("enablePiProvider", default: true)
+    static let enableDstProvider = Key<Bool>("enableDstProvider", default: true)
     static let enablePiLiveActivity = Key<Bool>("enablePiLiveActivity", default: true)
     static let enableCodexLiveActivity = Key<Bool>("enableCodexLiveActivity", default: true)
     static let enableClaudeLiveActivity = Key<Bool>("enableClaudeLiveActivity", default: true)

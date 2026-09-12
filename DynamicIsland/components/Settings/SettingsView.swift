@@ -7883,6 +7883,7 @@ struct StatsSettings: View {
     @Default(.enableStatsFeature) var enableStatsFeature
     @Default(.enableLLMUsageFeature) var enableLLMUsageFeature
     @Default(.enableNewAPIProvider) var enableNewAPIProvider
+    @Default(.enableDstProvider) var enableDstProvider
     @Default(.statsStopWhenNotchCloses) var statsStopWhenNotchCloses
     @Default(.statsUpdateInterval) var statsUpdateInterval
     @Default(.showCpuGraph) var showCpuGraph
@@ -7982,6 +7983,14 @@ struct StatsSettings: View {
                         Text("Pi")
                     }
                     .settingsHighlight(id: highlightID("Pi Provider"))
+
+                    Defaults.Toggle(key: .enableDstProvider) {
+                        Text("DSH (dst)")
+                    }
+                    .settingsHighlight(id: highlightID("DSH Provider"))
+                    .onChange(of: enableDstProvider) { _, _ in
+                        LLMUsageManager.shared.refreshAll(force: true)
+                    }
                 } header: {
                     Text("LLM Providers")
                 } footer: {

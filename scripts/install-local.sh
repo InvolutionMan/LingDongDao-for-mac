@@ -38,6 +38,12 @@ if [ -d "$APP_DST" ]; then
   BACKUP="$APP_DST.backup-$(date +%Y%m%d-%H%M%S)"
   echo "==> Backing up existing app to $BACKUP"
   mv "$APP_DST" "$BACKUP"
+  # Keep one rollback copy, not a pile: repeated installs used to leave 84 MB
+  # each behind in /Applications.
+  ls -dt "$APP_DST".backup-* 2>/dev/null | tail -n +2 | while read -r stale; do
+    echo "==> Removing older backup $(basename "$stale")"
+    rm -rf "$stale"
+  done
 fi
 
 echo "==> Installing to $APP_DST"

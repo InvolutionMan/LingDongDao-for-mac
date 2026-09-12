@@ -34,17 +34,26 @@ osascript -e 'quit app "Atoll"' 2>/dev/null || true
 pkill -f "Atoll.app/Contents/MacOS/Atoll" 2>/dev/null || true
 sleep 2
 
+# Rollback copies live outside /Applications, which is for the app the user
+# actually runs: repeated installs used to leave an 84 MB "Atoll.app.backup-*"
+# next to it, and even one is one too many there. One copy is kept, in Atoll's
+# own support folder, and the previous one is dropped.
+BACKUP_DIR="$HOME/Library/Application Support/Atoll/backups"
 if [ -d "$APP_DST" ]; then
-  BACKUP="$APP_DST.backup-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUP_DIR"
+  BACKUP="$BACKUP_DIR/Atoll-$(date +%Y%m%d-%H%M%S).app"
   echo "==> Backing up existing app to $BACKUP"
   mv "$APP_DST" "$BACKUP"
-  # Keep one rollback copy, not a pile: repeated installs used to leave 84 MB
-  # each behind in /Applications.
-  ls -dt "$APP_DST".backup-* 2>/dev/null | tail -n +2 | while read -r stale; do
+  ls -dt "$BACKUP_DIR"/*.app 2>/dev/null | tail -n +2 | while read -r stale; do
     echo "==> Removing older backup $(basename "$stale")"
     rm -rf "$stale"
   done
 fi
+# Any backup an earlier version of this script left in /Applications goes too.
+ls -d "$APP_DST".backup-* 2>/dev/null | while read -r stale; do
+  echo "==> Removing old in-place backup $(basename "$stale")"
+  rm -rf "$stale"
+done
 
 echo "==> Installing to $APP_DST"
 cp -R "$APP_SRC" "$APP_DST"

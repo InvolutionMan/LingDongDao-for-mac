@@ -221,28 +221,6 @@ bash scripts/install-sounds.sh ~/Desktop  # 或指定目录
 
 ---
 
-## 微信 / QQ 消息上岛（可选桥接）
-
-`scripts/install-notify-bridge.sh` 会装一个**独立的小 helper**，把微信 / QQ 的通知变成灵动岛活动——显示发送人和应用自己的图标。它用的是 Atoll 的官方扩展 API，**应用本体零改动**，需要的权限也只授给这个 helper。
-
-```bash
-bash scripts/install-notify-bridge.sh              # 只显示发送人（默认）
-bash scripts/install-notify-bridge.sh --body       # 连正文一起显示
-bash scripts/install-notify-bridge.sh --test       # 推一条假消息，验证链路
-bash scripts/install-notify-bridge.sh --uninstall  # 完整卸载
-```
-
-原理：只读系统通知库 `~/Library/Group Containers/group.com.apple.usernoted/db2/db`，按 `rec_id` 增量读取（游标在 `~/.atoll/notify-bridge-state.json`，首次从「当前」开始，不重放历史），解析 `record.data` 的 binary plist 取发送人/正文，再通过扩展 API 呈现；同一发送人连发消息复用同一个活动，默认 8 秒后自动消失。
-
-**授权说明（实测）**：
-
-1. **扩展授权**：第一条消息时灵动岛会弹一次提示，点允许即可；也可以在 Atoll 的扩展授权记录里预置（`defaults` 里的 `extensionAuthorizationEntries`），无需在岛上点。
-2. **完全磁盘访问**：**通常不需要**——本机实测 helper 直接就能读通知库（日志会出现 `watching com.tencent.xinWeChat, com.tencent.qq from record …`）。只有当日志反复出现 `cannot read notifications` 时才需要：系统设置 → 隐私与安全性 → 完全磁盘访问 → 添加 `~/Library/Application Support/Atoll/notify-bridge/AtollNotifyBridge.app/Contents/MacOS/atoll-notify-bridge`。
-
-活动里的图标用的是**微信/QQ 自己的 App 图标**（扩展描述符的 `.appIcon(bundleIdentifier:)`，与桌面上那个图标同源），不是通用符号。
-
-**边界与隐私**：只能看到「系统通知已记录」的消息（微信/QQ 的通知权限必须开着，勿扰或关掉通知时收不到）；正文涉及隐私，**默认不显示**；数据只在本机、只读不写系统通知库；helper 以 LaunchAgent 常驻（`com.atoll.notify-bridge`），日志在 `~/Library/Logs/Atoll/notify-bridge.log`。微信自己的聊天库是加密的、注入/插件方案有封号风险——这两条都不做。
-
 ## 安装
 
 ### 构建并安装应用（本机）

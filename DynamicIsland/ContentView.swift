@@ -2434,7 +2434,8 @@ struct ContentView: View {
             privacyIndicator: privacyManager.hasAnyIndicator && (Defaults[.enableCameraDetection] || Defaults[.enableMicrophoneDetection]),
             sneakPeek: coordinator.sneakPeek.show || isSneakPeekVisibleOnCurrentScreen,
             shelf: !shelfState.isEmpty,
-            capsLock: capsLockManager.isCapsLockActive && Defaults[.enableCapsLockIndicator]
+            capsLock: capsLockManager.isCapsLockActive && Defaults[.enableCapsLockIndicator],
+            extensionActivity: !extensionLiveActivityManager.sortedActivities().isEmpty
         )
     }
 

@@ -17,6 +17,10 @@ struct IslandActivitySignals: Equatable {
     var sneakPeek: Bool = false
     var shelf: Bool = false
     var capsLock: Bool = false
+    /// A third-party extension is showing a live activity — a WeChat / QQ
+    /// message through the notify bridge, say. Without this the auto-hide rule
+    /// would keep the island away exactly when a message wants it.
+    var extensionActivity: Bool = false
 }
 
 /// True when any of the island's own live activities wants the closed pill.
@@ -32,6 +36,7 @@ func islandHasSomethingToShow(_ signals: IslandActivitySignals) -> Bool {
         || signals.sneakPeek
         || signals.shelf
         || signals.capsLock
+        || signals.extensionActivity
 }
 
 /// Whether the island should step aside right now.

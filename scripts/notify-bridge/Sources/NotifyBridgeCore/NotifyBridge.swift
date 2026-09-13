@@ -87,7 +87,7 @@ public struct NotifyBridge {
             do {
                 try await present(record, options: options)
             } catch {
-                log("could not present \(record.sender): \(error.localizedDescription)", options: options)
+                note("could not present [\(record.appName)] \(record.sender): \(error.localizedDescription)")
             }
         }
         try store.saveCursor(newest)
@@ -142,9 +142,14 @@ public struct NotifyBridge {
             estimatedDuration: options.dismissAfter
         )
         // Presenting again with the same id replaces the activity, which is what
-        // keeps one sender to one row; the kit's `updateLiveActivity` is avoided
-        // on purpose (it leaks its XPC continuation, hanging the caller).
-        try await withTimeout { try await AtollClient.shared.presentLiveActivity(descriptor) }
+        // keeps one sender to one row.
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(descriptor))
+        guard let payload = object as? [String: Any] else {
+            throw BridgeError.payload("could not encode the activity descriptor")
+        }
+        var client = AtollRPCClient(bundleIdentifier: options.extensionBundleIdentifier)
+        let reply = try await withTimeout { try await client.presentLiveActivity(descriptor: payload) }
+        note("presented [\(record.appName)] \(record.sender) → \(reply)")
     }
 
     private static func printLine(_ record: BridgeNotification, options: Options) {

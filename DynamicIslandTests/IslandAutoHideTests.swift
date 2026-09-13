@@ -34,13 +34,14 @@ final class IslandAutoHideTests: XCTestCase {
         privacyIndicator: Bool = false,
         sneakPeek: Bool = false,
         shelf: Bool = false,
-        capsLock: Bool = false
+        capsLock: Bool = false,
+        extensionActivity: Bool = false
     ) -> IslandActivitySignals {
         IslandActivitySignals(
             cliAgent: cliAgent, media: media, timer: timer, reminder: reminder,
             recording: recording, download: download, focus: focus,
             privacyIndicator: privacyIndicator, sneakPeek: sneakPeek,
-            shelf: shelf, capsLock: capsLock
+            shelf: shelf, capsLock: capsLock, extensionActivity: extensionActivity
         )
     }
 
@@ -62,6 +63,7 @@ final class IslandAutoHideTests: XCTestCase {
             ("sneak peek", signals(sneakPeek: true)),
             ("shelf", signals(shelf: true)),
             ("caps lock", signals(capsLock: true)),
+            ("extension activity (a chat message)", signals(extensionActivity: true)),
         ]
         for (name, value) in cases {
             XCTAssertTrue(islandHasSomethingToShow(value), "\(name) should keep the island")
@@ -80,6 +82,15 @@ final class IslandAutoHideTests: XCTestCase {
         XCTAssertFalse(
             islandShouldHide(hideOnClosed: false, autoHideWhenIdle: true, signals: signals(timer: true))
         )
+    }
+
+    /// The bug this guards: with the auto-hide setting on, a WeChat / QQ message
+    /// arriving through the bridge used to be suppressed because the island had
+    /// already stepped aside and the message did not count as an activity.
+    func testExtensionActivityBringsTheIslandBack() {
+        let message = signals(extensionActivity: true)
+        XCTAssertTrue(islandHasSomethingToShow(message))
+        XCTAssertFalse(islandShouldHide(hideOnClosed: false, autoHideWhenIdle: true, signals: message))
     }
 
     /// A fullscreen app covering the menu bar still wins over any activity.

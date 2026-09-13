@@ -56,7 +56,20 @@ ls -d "$APP_DST".backup-* 2>/dev/null | while read -r stale; do
 done
 
 echo "==> Installing to $APP_DST"
-cp -R "$APP_SRC" "$APP_DST"
+# Copy beside the destination first and only then swap it in: an interrupted or
+# failing copy used to leave /Applications with no Atoll at all, because the old
+# app had already been moved to the backup folder.
+STAGING="$APP_DST.staging-$$"
+rm -rf "$STAGING"
+cp -R "$APP_SRC" "$STAGING"
+if [ ! -x "$STAGING/Contents/MacOS/Atoll" ]; then
+  echo "!! copy failed — keeping the installed app untouched" >&2
+  rm -rf "$STAGING"
+  [ -d "$BACKUP" ] && mv "$BACKUP" "$APP_DST"
+  exit 1
+fi
+rm -rf "$APP_DST"
+mv "$STAGING" "$APP_DST"
 xattr -dr com.apple.quarantine "$APP_DST" 2>/dev/null || true
 codesign --verify --deep --strict "$APP_DST"
 

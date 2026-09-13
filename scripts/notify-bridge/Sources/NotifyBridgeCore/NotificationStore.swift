@@ -7,15 +7,31 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 
 /// One notification the system recorded, already filtered to the apps we care
 /// about.
-struct BridgeNotification: Equatable {
-    let recordID: Int64
-    let bundleIdentifier: String
+public struct BridgeNotification: Equatable {
+    public let recordID: Int64
+    public let bundleIdentifier: String
     /// Who wrote it: WeChat/QQ put the sender in the subtitle, other apps in the
     /// title.
-    let sender: String
-    let body: String?
-    let appName: String
-    let deliveredAt: Date?
+    public let sender: String
+    public let body: String?
+    public let appName: String
+    public let deliveredAt: Date?
+
+    public init(
+        recordID: Int64,
+        bundleIdentifier: String,
+        sender: String,
+        body: String?,
+        appName: String,
+        deliveredAt: Date?
+    ) {
+        self.recordID = recordID
+        self.bundleIdentifier = bundleIdentifier
+        self.sender = sender
+        self.body = body
+        self.appName = appName
+        self.deliveredAt = deliveredAt
+    }
 }
 
 /// Reads the system's notification database.
@@ -24,8 +40,8 @@ struct BridgeNotification: Equatable {
 /// `~/Library/Group Containers/group.com.apple.usernoted/db2/db`; the payload is
 /// a binary plist in `record.data`. Reading it needs Full Disk Access, which is
 /// why this runs as its own helper instead of inside Atoll.
-enum NotificationStore {
-    static var defaultPath: String {
+public enum NotificationStore {
+    public static var defaultPath: String {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Group Containers/group.com.apple.usernoted/db2/db")
             .path
@@ -33,14 +49,14 @@ enum NotificationStore {
 
     /// Highest `rec_id` currently in the database — the starting cursor, so a
     /// fresh install does not replay weeks of history.
-    static func latestRecordID(path: String) throws -> Int64 {
+    public static func latestRecordID(path: String) throws -> Int64 {
         let db = try open(path, readOnly: true)
         defer { sqlite3_close(db) }
         return try scalarInt(db, "select coalesce(max(rec_id), 0) from record;")
     }
 
     /// Everything newer than `afterID`, oldest first.
-    static func records(after afterID: Int64, path: String, appIDs: [String]) throws -> [BridgeNotification] {
+    public static func records(after afterID: Int64, path: String, appIDs: [String]) throws -> [BridgeNotification] {
         let db = try open(path, readOnly: true)
         defer { sqlite3_close(db) }
 
@@ -80,7 +96,7 @@ enum NotificationStore {
         return found
     }
 
-    static func friendlyName(for bundleIdentifier: String) -> String {
+    public static func friendlyName(for bundleIdentifier: String) -> String {
         switch bundleIdentifier {
         case "com.tencent.xinWeChat": return "微信"
         case "com.tencent.qq": return "QQ"

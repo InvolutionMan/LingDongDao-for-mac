@@ -13,10 +13,14 @@ let package = Package(
         .package(url: "https://github.com/Ebullioscopic/AtollExtensionKit", branch: "main"),
     ],
     targets: [
-        .executableTarget(
-            name: "atoll-notify-bridge",
+        // The logic lives in a library so the tests can reach it; the
+        // executable is only the entry point launchd starts.
+        .target(
+            name: "NotifyBridgeCore",
             dependencies: [.product(name: "AtollExtensionKit", package: "AtollExtensionKit")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
+        .executableTarget(name: "atoll-notify-bridge", dependencies: ["NotifyBridgeCore"]),
+        .testTarget(name: "NotifyBridgeCoreTests", dependencies: ["NotifyBridgeCore"]),
     ]
 )

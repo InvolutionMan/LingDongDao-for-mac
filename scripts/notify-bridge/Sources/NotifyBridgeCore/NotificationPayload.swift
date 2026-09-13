@@ -6,23 +6,23 @@ import Foundation
 /// The layout is not documented and varies a little per app and macOS release,
 /// so this walks the plist for the first value of each key instead of trusting
 /// one fixed path — the alternative is a helper that breaks silently.
-struct NotificationPayload {
-    let title: String
-    let subtitle: String?
-    let body: String?
-    let appName: String?
+public struct NotificationPayload {
+    public let title: String
+    public let subtitle: String?
+    public let body: String?
+    public let appName: String?
 
     /// Who the message is from. WeChat and QQ announce the sender in the
     /// subtitle and use the app name as the title, but plenty of apps do the
     /// opposite, so prefer the subtitle only when it is not the app's own name.
-    var sender: String {
+    public var sender: String {
         if let subtitle, !subtitle.isEmpty, subtitle != appName, subtitle != title {
             return subtitle
         }
         return title.isEmpty ? appName ?? "通知" : title
     }
 
-    init?(data: Data) {
+    public init?(data: Data) {
         guard let plist = try? PropertyListSerialization.propertyList(
             from: data, options: [], format: nil
         ) as? [String: Any] else { return nil }

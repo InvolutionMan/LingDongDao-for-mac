@@ -37,24 +37,37 @@ struct NotifyBridge {
             return
         }
 
-        do {
-            let store = StateStore(path: options.statePath)
-            var cursor = try store.loadCursor(fallback: options.replayHistory ? 0 : nil,
-                                               databasePath: options.databasePath)
+        let store = StateStore(path: options.statePath)
+        var cursor: Int64?
 
-            while true {
-                do {
-                    cursor = try await pass(cursor: cursor, options: options, store: store)
-                } catch {
-                    log("pass failed: \(error.localizedDescription)", options: options)
+        while true {
+            do {
+                if cursor == nil {
+                    cursor = try store.loadCursor(
+                        fallback: options.replayHistory ? 0 : nil,
+                        databasePath: options.databasePath
+                    )
+                    note("watching \(options.bundleIdentifiers.joined(separator: ", ")) from record \(cursor ?? 0)")
                 }
-                if options.once { return }
-                try await Task.sleep(nanoseconds: UInt64(options.interval * 1_000_000_000))
+                cursor = try await pass(cursor: cursor ?? 0, options: options, store: store)
+            } catch {
+                // Reported once every pass — a bridge that cannot read the
+                // database (usually Full Disk Access) should say so in its log
+                // rather than fail silently, and must keep running so it picks
+                // up the moment the permission is granted.
+                note("cannot read notifications: \(error.localizedDescription)")
+                cursor = nil
+                if options.once { exit(1) }
             }
-        } catch {
-            log("fatal: \(error.localizedDescription)", options: options)
-            exit(1)
+            if options.once { return }
+            try? await Task.sleep(nanoseconds: UInt64(options.interval * 1_000_000_000))
         }
+    }
+
+    /// Always written: the launch agent's log is the only place a user can see
+    /// why nothing shows up.
+    static func note(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
     /// One poll: read what is new, present it, advance the cursor.

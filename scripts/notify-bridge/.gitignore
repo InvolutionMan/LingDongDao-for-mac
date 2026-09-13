@@ -1,0 +1,4 @@
+# SwiftPM caches and build products, kept inside the package so builds work in
+# sandboxes that forbid writing to ~/Library.
+.spm/
+.build/

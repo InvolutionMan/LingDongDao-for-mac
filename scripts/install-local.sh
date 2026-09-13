@@ -6,6 +6,23 @@
 # Re-run it after pulling/making code changes to refresh the installed app.
 set -euo pipefail
 
+# Drops every copy in $1 matching $2 except the newest one.
+#
+# Written with find/sort rather than `ls -dt`: under `set -euo pipefail` an `ls`
+# that matches nothing returns non-zero, and the pipeline then aborts the whole
+# script — which is how an install once moved the app away and stopped before
+# copying the new one in.
+prune_older() {
+  local dir="$1" name="$2" stale
+  find "$dir" -maxdepth 1 -name "$name" -print0 2>/dev/null \
+    | xargs -0 -r stat -f '%m %N' 2>/dev/null \
+    | sort -rn | tail -n +2 | cut -d' ' -f2- \
+    | while IFS= read -r stale; do
+        echo "==> Removing older copy $(basename "$stale")"
+        rm -rf "$stale"
+      done || true
+}
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 XCODE_DEVELOPER="${XCODE_DEVELOPER:-$(ls -d /Applications/Xcode*.app 2>/dev/null | head -1)/Contents/Developer}"
 DERIVED_DATA="$PROJECT_DIR/.build/ReleaseDerived"
@@ -39,21 +56,16 @@ sleep 2
 # next to it, and even one is one too many there. One copy is kept, in Atoll's
 # own support folder, and the previous one is dropped.
 BACKUP_DIR="$HOME/Library/Application Support/Atoll/backups"
+BACKUP=""
 if [ -d "$APP_DST" ]; then
   mkdir -p "$BACKUP_DIR"
   BACKUP="$BACKUP_DIR/Atoll-$(date +%Y%m%d-%H%M%S).app"
   echo "==> Backing up existing app to $BACKUP"
   mv "$APP_DST" "$BACKUP"
-  ls -dt "$BACKUP_DIR"/*.app 2>/dev/null | tail -n +2 | while read -r stale; do
-    echo "==> Removing older backup $(basename "$stale")"
-    rm -rf "$stale"
-  done
+  prune_older "$BACKUP_DIR" 'Atoll-*.app'
 fi
 # Any backup an earlier version of this script left in /Applications goes too.
-ls -d "$APP_DST".backup-* 2>/dev/null | while read -r stale; do
-  echo "==> Removing old in-place backup $(basename "$stale")"
-  rm -rf "$stale"
-done
+prune_older /Applications 'Atoll.app.backup-*'
 
 echo "==> Installing to $APP_DST"
 # Copy beside the destination first and only then swap it in: an interrupted or
@@ -65,7 +77,9 @@ cp -R "$APP_SRC" "$STAGING"
 if [ ! -x "$STAGING/Contents/MacOS/Atoll" ]; then
   echo "!! copy failed — keeping the installed app untouched" >&2
   rm -rf "$STAGING"
-  [ -d "$BACKUP" ] && mv "$BACKUP" "$APP_DST"
+  if [ -n "$BACKUP" ] && [ -d "$BACKUP" ]; then
+    mv "$BACKUP" "$APP_DST"
+  fi
   exit 1
 fi
 rm -rf "$APP_DST"

@@ -50,6 +50,10 @@ enum DshSessionTail {
         "assistant/chunk", "assistant/message",
         "reasoning-chunks", "text-chunks", "tool-call-chunks",
         "tool/call", "tool/result", "todo/write",
+        // Added by the 0.14 releases; `agent/inbox/spliced` is deliberately not
+        // here — queueing input happens outside a turn too, and would read as
+        // "working" for an idle session.
+        "command/run", "command/done", "compaction/prune",
     ]
 
     // MARK: - Record parsing
@@ -651,7 +655,20 @@ final class DshSessionMonitor: ObservableObject {
             process.waitUntilExit()
             return process.terminationStatus == 0
         }
-        return pgrepSucceeds(["-x", "dst"]) || pgrepSucceeds(["-f", "bin/dsh"])
+        return pgrepSucceeds(["-x", "dst"])
+            || pgrepSucceeds(["-f", "bin/dsh"])
+            // 0.14 runs the harness out of ~/.dsh/profiles/<name>/node_modules.
+            || pgrepSucceeds(["-f", "dsh-tui"])
+            || pgrepSucceeds(["-f", "deepseek-harness"])
+    }
+
+    /// DSH names the log after its format version: `session.jsonl.zstd` in older
+    /// releases, `session.v3.jsonl.zstd` and `session.v4.jsonl.zstd` from 0.14
+    /// on. Matching one exact name meant the current release was invisible to
+    /// the island, so match the shape — and skip `session.lock`, which sits
+    /// beside it.
+    nonisolated private static func isSessionFile(_ name: String) -> Bool {
+        name.hasPrefix("session") && name.hasSuffix(".jsonl.zstd")
     }
 
     /// Newest session file. DSH keeps one directory per session under
@@ -667,7 +684,7 @@ final class DshSessionMonitor: ObservableObject {
         var best: (url: URL, modified: Date)?
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
-            guard name.hasPrefix("session.jsonl") else { continue }
+            guard Self.isSessionFile(name) else { continue }
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate ?? .distantPast
             if best == nil || modified > best!.modified {

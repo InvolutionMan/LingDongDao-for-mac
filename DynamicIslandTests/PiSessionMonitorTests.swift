@@ -453,7 +453,7 @@ final class DshSessionMonitorTests: XCTestCase {
         let model = line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-flash", "reasoningEffort": "high"])
 
         try Self.writeSession(
-            in: root, named: "idle",
+            in: root, named: "idle", fileName: "session.jsonl.zstd",
             records: [line("session", ["version": 0]), model],
             zstd: zstd
         )
@@ -462,7 +462,7 @@ final class DshSessionMonitorTests: XCTestCase {
         XCTAssertNil(idle.detail)
 
         try Self.writeSession(
-            in: root, named: "running",
+            in: root, named: "running", fileName: "session.jsonl.zstd",
             records: [line("session", ["version": 0]), model, line("turn/start", ["turn": 1]), toolCall("c1", "bash", ["command": "npm test"])],
             zstd: zstd
         )
@@ -470,6 +470,73 @@ final class DshSessionMonitorTests: XCTestCase {
         XCTAssertTrue(running.busy, "a tool call is in flight")
         XCTAssertEqual(running.detail?.toolName, "bash")
         XCTAssertEqual(running.model, "deepseek-v4-flash")
+    }
+
+    /// 0.14 writes `session.v4.jsonl.zstd` next to a `session.lock`; before this
+    /// was handled the island saw none of those sessions at all, and the newest
+    /// file it did see belonged to an old release.
+    func testPollOnceReadsVersionedSessionFiles() throws {
+        try XCTSkipUnless(Self.dshProcessIsRunning(), "needs a running dst/dsh to pass the process gate")
+        let zstd = try XCTUnwrap(Self.zstdExecutable(), "zstd is required to write a session fixture")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atoll-dsh-v4-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // an old-format session, last written a while ago
+        try Self.writeSession(
+            in: root, named: "old", fileName: "session.jsonl.zstd",
+            records: [
+                line("session", ["version": 0]),
+                line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v3-legacy"]),
+                line("turn/start", ["turn": 1]),
+            ],
+            zstd: zstd
+        )
+        let oldFile = root.appendingPathComponent("old/session.jsonl.zstd")
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: oldFile.path
+        )
+
+        // the current release: v4 file plus the lock file it keeps beside it
+        try Self.writeSession(
+            in: root, named: "current", fileName: "session.v4.jsonl.zstd",
+            records: [
+                line("session", ["version": 4]),
+                line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-pro", "reasoningEffort": "high"]),
+                line("turn/start", ["turn": 1]),
+                toolCall("c1", "bash", ["command": "swift test"]),
+            ],
+            zstd: zstd
+        )
+        try Data().write(to: root.appendingPathComponent("current/session.lock"))
+
+        let snapshot = DshSessionMonitor.pollOnce(sessionsRoot: root, memory: DshModelMemory())
+        XCTAssertEqual(snapshot.model, "deepseek-v4-pro", "the versioned file must win over the legacy one")
+        XCTAssertTrue(snapshot.busy)
+        XCTAssertEqual(snapshot.detail?.toolName, "bash")
+    }
+
+    /// `command/run` and `compaction/prune` only appear while the agent works.
+    func testPollOnceTreatsCommandRecordsAsProgress() throws {
+        try XCTSkipUnless(Self.dshProcessIsRunning(), "needs a running dst/dsh to pass the process gate")
+        let zstd = try XCTUnwrap(Self.zstdExecutable(), "zstd is required to write a session fixture")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atoll-dsh-command-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Self.writeSession(
+            in: root, named: "session", fileName: "session.v4.jsonl.zstd",
+            records: [
+                line("session", ["version": 4]),
+                line("model/selection", ["provider": "deepseek-official", "model": "deepseek-v4-pro"]),
+                line("turn/start", ["turn": 1]),
+                line("command/run", ["command": "npm run build"]),
+            ],
+            zstd: zstd
+        )
+
+        let snapshot = DshSessionMonitor.pollOnce(sessionsRoot: root, memory: DshModelMemory())
+        XCTAssertTrue(snapshot.busy, "a command in flight means the agent is working")
     }
 
     private static func dshProcessIsRunning() -> Bool {
@@ -489,14 +556,22 @@ final class DshSessionMonitorTests: XCTestCase {
             .map { URL(fileURLWithPath: $0) }
     }
 
-    /// Writes `<root>/<name>/session.jsonl.zstd`, compressed the way DSH does.
-    private static func writeSession(in root: URL, named name: String, records: [String], zstd: URL) throws {
+    /// Writes `<root>/<name>/<fileName>`, compressed the way DSH does. Older
+    /// releases call it `session.jsonl.zstd`; 0.14 names it after the format
+    /// version (`session.v4.jsonl.zstd`).
+    private static func writeSession(
+        in root: URL,
+        named name: String,
+        fileName: String = "session.jsonl.zstd",
+        records: [String],
+        zstd: URL
+    ) throws {
         let directory = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let plain = directory.appendingPathComponent("session.jsonl")
+        let plain = directory.appendingPathComponent(fileName + ".staging")
         try records.joined(separator: "\n").appending("\n").write(to: plain, atomically: true, encoding: .utf8)
 
-        let compressed = directory.appendingPathComponent("session.jsonl.zstd")
+        let compressed = directory.appendingPathComponent(fileName)
         let process = Process()
         process.executableURL = zstd
         process.arguments = ["-q", "-f", plain.path, "-o", compressed.path]
